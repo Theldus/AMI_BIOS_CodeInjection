@@ -40,14 +40,18 @@ but _when_. During my journey I had to easily reflash more than __50 times!__.
 inserting modules into the BIOS. However, the module we will be working on in this article
 (1B) is blocked by default. Therefore, we need this modded version to proceed (more details
 later).
-- FreeDOS: In order to run AFUDOS.EXE and reflash without external tools
 - AFUDOS v4.08p: AMI's Tool to Flash BIOS ROM
+- [amideco]: (Optional) To extract AMI ROM modules on Linux
+- [FreeDOS]: In order to run AFUDOS.EXE and reflash without external tools
 - Hex editor for disassembling and static analysis: I highly recommend [HT],
 [Cutter] and [ImHex].
+- `NASM`, `ndisasm`, `objdump` and relateds are useful too
 
 [HT]: https://hte.sourceforge.net/
 [Cutter]: https://github.com/rizinorg/cutter
 [ImHex]: https://github.com/WerWolv/ImHex
+[FreeDOS]: https://www.freedos.org/
+[amideco]: https://manpages.ubuntu.com/manpages/trusty/man1/amideco.1.html
 
 ## BIOS modules
 Every (as far as I know) BIOS ROM is made up of modules. These modules can be compressed or
@@ -107,7 +111,7 @@ stack nearby (`push`,`pop`,`ret`...) _might_ be a good sign!
 ```
 The 'code' above is literally:
 ```asm
-00000000  52 55 4e 5f 43 53 45 47  00 01                    |RUN_CSEG..|
+00000000  52 55 4e 5f 43 53 45 47  00 01    |RUN_CSEG..|
 ```
 That is, just strings being interpreted as instructions, be *very* careful with that!
 
@@ -128,7 +132,7 @@ That is, just strings being interpreted as instructions, be *very* careful with 
 ...
 ```
 
-The above code uses the CPUID instruction multiple times to get the computer's CPU model
+The above code uses the `CPUID` instruction multiple times to get the computer's CPU model
 string. With each invocation, the same function is called (probably saving the contents of
 the registers somewhere).
 
@@ -144,7 +148,55 @@ you can do. The BIOS can (and will) jump in and out of protected-mode one or mor
 its entire run. So please, make sure your code has been injected into some area that runs as
 16-bit code.
 
-#### How to find, then?
-There is no magic formula for this, just "educated guesses".
+### How to find, then?
+We can divide in two steps:
 
-First of all, extract the "Single Link Arch BIOS" module (module ID 0x1B) with MMTool and...
+___a) Extract the POST.ROM file:___
+
+First of all, extract the "Single Link Arch BIOS/SLAB" module (module ID 0x1B) with MMTool (or amideco).
+I'll call the extracted file as `post.rom`.
+
+___b) Search:___
+
+This is by far the hardest step of all, but once you've found a good spot, everything gets easier =).
+Unfortunately, there's no magical formula here, just 'educated guesses':
+
+**`ndisasm`-only approach**:
+
+My suggestion is to initially use `ndisasm` and try to "`grep`" for something useful, something like:
+```bash
+$ ndisasm -b16 post.rom | grep "cpuid"
+```
+or maybe:
+```bash
+$ ndisasm -b16 post.rom  | grep "cpuid" -C 10 | grep "80000002" -C 10
+```
+The line above returns the code block (b) shown earlier, magical isn't it?
+
+However, there are a few quirks with this approach: `ndisasm` actually interprets the input file as
+a raw binary file, so strings and etc will also be seen as instructions, remember what I said in
+the beginning? You can never blindly trust the output of ndisasm... the ROM file is a mess inside,
+and we can't 100% separate what is code and what is data... since it's just a raw binary file..
+
+**`skip_string.sh` approach**:
+
+This script generates a'skip list' for `ndisasm` using the strings command. This list's offsets are
+then ignored by `ndisasm`.
+
+To put it simply:
+```bash
+# Generates a dump ('post_rom_skipped.dump') skipping strings
+$ ./tools/skip_string.sh post.rom 
+
+# Search again
+$ grep "cpuid" -C 10 post_rom_skipped.dump | grep "80000002" -C 10
+```
+
+This method isn't foolproof either, but it can help find previously unrecognized instructions.
+
+**'instruction encoding' approach**:
+
+If all fails, you can search for a particular instruction directly by its encoding, i.e. its
+'raw bytes': the instruction `mov eax, 0x80000002` consists of the following bytes:
+`0x66, 0xB8, 0x02, 0x00, 0x00, 0x80`.
+
