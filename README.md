@@ -178,25 +178,58 @@ a raw binary file, so strings and etc will also be seen as instructions, remembe
 the beginning? You can never blindly trust the output of ndisasm... the ROM file is a mess inside,
 and we can't 100% separate what is code and what is data... since it's just a raw binary file..
 
-**`skip_string.sh` approach**:
+**`tools/skip_strings.sh` approach**:
 
-This script generates a'skip list' for `ndisasm` using the strings command. This list's offsets are
-then ignored by `ndisasm`.
+This script generates a 'skip list' for `ndisasm` using the strings command. This list contains
+the strings offsets that are then ignored by `ndisasm`.
 
 To put it simply:
 ```bash
-# Generates a dump ('post_rom_skipped.dump') skipping strings
-$ ./tools/skip_string.sh post.rom 
+# Generates a dump skipping strings
+$ ./tools/skip_strings.sh post.rom 
+Output file: post.rom.dump
 
 # Search again
-$ grep "cpuid" -C 10 post_rom_skipped.dump | grep "80000002" -C 10
+$ grep "cpuid" -C 10 post.rom.dump | grep "80000002" -C 10
 ```
+Optionally, the `-t` parameter can be used to define the strings minimum length  (default = 8). 
+See `-h` for more details.
 
-This method isn't foolproof either, but it can help find previously unrecognized instructions.
+(This method isn't foolproof either, but it can help find previously unrecognized instructions.)
 
-**'instruction encoding' approach**:
+**`tools/find_asm.sh` approach**:
 
 If all fails, you can search for a particular instruction directly by its encoding, i.e. its
-'raw bytes': the instruction `mov eax, 0x80000002` consists of the following bytes:
-`0x66, 0xB8, 0x02, 0x00, 0x00, 0x80`.
+'raw bytes'. For instance, the instruction `mov eax, 0x80000002` consists of the following
+bytes: `0x66, 0xB8, 0x02, 0x00, 0x00, 0x80` on 16-bit mode.
 
+The `find asm.sh` script was written to aid in this process. You can type as many instructions
+on stdin as you want, and they will be compiled to assembly and their corresponding bytes will
+be searched in ROM. The chances of not finding an instruction (which exists!) are greatly
+reduced in this manner:
+
+```bash
+$ ./tools/find_asm.sh post.rom
+mov eax,0x80000002
+^D # Press Ctrl+D to finish
+
+Offset 70934:
+00000000  66B802000080      mov eax,0x80000002
+00000006  0FA2              cpuid
+00000008  E84300            call 0x4e
+0000000B  66B803000080      mov eax,0x80000003
+00000011  0FA2              cpuid
+00000013  E83800            call 0x4e
+00000016  66B804000080      mov eax,0x80000004
+0000001C  0FA2              cpuid
+0000001E  E8                db 0xe8
+0000001F  2D                db 0x2d
+```
+If the instructions below the found instruction make sense, congratulations, you found a valid
+code snippet.
+
+It is worth noting, however, that the instruction dump is based on byte quantity, rather than
+instruction quantity, so the last instructions in the dump may be invalid. To work around this,
+increase the dump size with the `-d` option. See `-h` for more details.
+
+### Injecting Code
