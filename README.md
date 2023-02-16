@@ -117,24 +117,25 @@ That is, just strings being interpreted as instructions, be *very* careful with 
 
 #### A good location (b):
 ```asm
+get_cpuid():
 00011513  6660              pushad
 00011515  57                push di
 00011516  66B802000080      mov eax,0x80000002
 0001151C  0FA2              cpuid
-0001151E  E84300            call 0x1564
+0001151E  E84300            call 0x1564 <save_cpuid>
 00011521  66B803000080      mov eax,0x80000003
 00011527  0FA2              cpuid
-00011529  E83800            call 0x1564
+00011529  E83800            call 0x1564 <save_cpuid>
 0001152C  66B804000080      mov eax,0x80000004
 00011532  0FA2              cpuid
-00011534  E82D00            call 0x1564
+00011534  E82D00            call 0x1564 <save_cpuid>
 00011537  5F                pop di
 ...
 ```
 
 The above code uses the `CPUID` instruction multiple times to get the computer's CPU model
-string. With each invocation, the same function is called (probably saving the contents of
-the registers somewhere).
+string. With each invocation, the same function is called, saving the contents of
+the registers somewhere.
 
 Looking at this piece of code, you can say with 100% certainty that it is not garbage,
 string or random data being interpreted as an instruction, but actual instructions.
@@ -147,6 +148,10 @@ the PC starts by default, b) you can use BIOS interrupts, and c) there are fewer
 you can do. The BIOS can (and will) jump in and out of protected-mode one or more times during
 its entire run. So please, make sure your code has been injected into some area that runs as
 16-bit code.
+
+> :warning: **Spoiler Alert:** While it is indeed a good location for injection, the BIOS at this
+stage has not yet initialized video, keyboard or anything interesting... so it could be a bad
+location if you want some user interaction. We'll look at a better location later.
 
 ### How to find, then?
 We can divide in two steps:
@@ -161,7 +166,7 @@ ___b) Search:___
 This is by far the hardest step of all, but once you've found a good spot, everything gets easier =).
 Unfortunately, there's no magical formula here, just 'educated guesses':
 
-**`ndisasm`-only approach**:
+<details><summary><b><code>ndisasm</code>-only approach</b></summary>
 
 My suggestion is to initially use `ndisasm` and try to "`grep`" for something useful, something like:
 ```bash
@@ -178,7 +183,9 @@ a raw binary file, so strings and etc will also be seen as instructions, remembe
 the beginning? You can never blindly trust the output of ndisasm... the ROM file is a mess inside,
 and we can't 100% separate what is code and what is data... since it's just a raw binary file..
 
-**`tools/skip_strings.sh` approach**:
+</details>
+
+<details><summary><b><code>tools/skip_strings.sh</code> approach</b></summary>
 
 This script generates a 'skip list' for `ndisasm` using the strings command. This list contains
 the strings offsets that are then ignored by `ndisasm`.
@@ -197,13 +204,15 @@ See `-h` for more details.
 
 (This method isn't foolproof either, but it can help find previously unrecognized instructions.)
 
-**`tools/find_asm.sh` approach**:
+</details>
+
+<details><summary><b><code>tools/find_asm.sh</code> approach</b></summary>
 
 If all fails, you can search for a particular instruction directly by its encoding, i.e. its
 'raw bytes'. For instance, the instruction `mov eax, 0x80000002` consists of the following
 bytes: `0x66, 0xB8, 0x02, 0x00, 0x00, 0x80` on 16-bit mode.
 
-The `find asm.sh` script was written to aid in this process. You can type as many instructions
+The `find_asm.sh` script was written to aid in this process. You can type as many instructions
 on stdin as you want, and they will be compiled to assembly and their corresponding bytes will
 be searched in ROM. The chances of not finding an instruction (which exists!) are greatly
 reduced in this manner:
@@ -214,16 +223,16 @@ mov eax,0x80000002
 ^D # Press Ctrl+D to finish
 
 Offset 70934:
-00000000  66B802000080      mov eax,0x80000002
-00000006  0FA2              cpuid
-00000008  E84300            call 0x4e
-0000000B  66B803000080      mov eax,0x80000003
-00000011  0FA2              cpuid
-00000013  E83800            call 0x4e
-00000016  66B804000080      mov eax,0x80000004
-0000001C  0FA2              cpuid
-0000001E  E8                db 0xe8
-0000001F  2D                db 0x2d
+00000000  66B802000080      mov eax,0x80000002   ┐ valid instructions
+00000006  0FA2              cpuid                |
+00000008  E84300            call 0x4e            |
+0000000B  66B803000080      mov eax,0x80000003   |
+00000011  0FA2              cpuid                |
+00000013  E83800            call 0x4e            |
+00000016  66B804000080      mov eax,0x80000004   |
+0000001C  0FA2              cpuid                ┘            
+0000001E  E8                db 0xe8 ┐ invalid insns due to the lack of
+0000001F  2D                db 0x2d ┘ remaining bytes
 ```
 If the instructions below the found instruction make sense, congratulations, you found a valid
 code snippet.
@@ -232,4 +241,74 @@ It is worth noting, however, that the instruction dump is based on byte quantity
 instruction quantity, so the last instructions in the dump may be invalid. To work around this,
 increase the dump size with the `-d` option. See `-h` for more details.
 
+</details>
+
 ### Injecting Code
+Now that you have a place to inject the code, there are basically 2 ways to inject it:
+
+1. Completely replacing instructions
+2. Adding a `call`,`jmp` (or equivalent) to elsewhere
+
+#### 1. Replacing instructions
+I want to emphasize here that replacing means literally replacing the original instructions to others,
+_without_ backup, because the BIOS does not need them. Remove instructions that are not needed? Yes,
+and I've already shown an example: the '[good location (b)](#a-good-location-b)'
+is unnecessary and can be completely replaced by any of your code.
+
+This function (`get_cpuid()`) returns the CPUID and begins at `0x11513` (physical file offset).
+The function (`save_cpuid()`) that this function calls, located at `0x11564`, simply saves the
+string to memory and can be replaced without issue, giving us an additional 25 bytes.
+
+Furthermore, the function that calls '`get_cpuid()`' can be removed, giving us an extra 92 bytes.
+In short, we have 198 bytes that can be completely erased/replaced from `0x114b7` to `0x1157c`!
+Isn't it amazing?
+
+Okay, let's say you want to inject some code that changes the CPU name, which is saved at the
+physical address `0xfd301 (F000:F3D01)`.
+
+You could do something like:
+```asm
+[BITS 16]
+[ORG 0x1138] ; 4000:1138
+
+pusha ; Always backup registers
+pushf ; and flags that you touch
+
+mov  ax, cs
+mov  ds, ax
+mov  ax, 0xF000
+mov  es, ax
+mov  di, 0x3D01
+mov  si, cpu_model_str
+
+mov  cx, cpu_model_str_len
+write:
+    lodsb
+    stosb
+    loop write
+
+popf
+popa
+ret
+
+cpu_model: db 'MyCPU', 0
+cpu_model_len equ $-cpu_model
+
+times 198-($-$$) db 0x90 # Padding
+```
+You can now build with:
+```bash
+$ nasm -fbin mycode.asm -o mycode.bin
+```
+and replace the appropriate portion with:
+```bash
+$ dd if=mycode.bin of=post.rom bs=1 seek=$((0x114b7)) conv=notrunc
+```
+Now with the `post.rom` file modified, just replace the original module (Single Link Arch
+BIOS/SLAB, ID 0x1B) for this one in `MMTool`, and save your new ROM, which will be ready
+to be flashed.
+
+> :information_source: **Note:** Note that I used the value `0x1138` as the ORG directive.
+This is the offset from the EIP at which the function resides in real memory (`4000:1138`).
+This value was obtained via memory dump with the `mdump` tool. _Whenever_ you make memory
+references within your own code, change the ORG directive to the appropriate value.
