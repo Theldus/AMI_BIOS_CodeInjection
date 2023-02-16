@@ -61,7 +61,7 @@ and allowing for specific points to be altered.
 
 Some of the key modules and their functions:
 
-### Bootblock
+### Bootblock (ID 0x08)
 The bootblock is the first module to be executed by the computer, it is usually uncompressed
 and runs from the memory location `F000:FFF0`.
 
@@ -69,13 +69,13 @@ The function of the bootblock is to perform a very basic initialization of the s
 as initializing the RAM, decompressing the remaining modules, and performing checksum checks
 on these modules as well.
 
-### Single Link Arch BIOS/System BIOS/POST ROM
+### Single Link Arch BIOS/System BIOS/POST ROM (ID 0x1B)
 This module is the main module of the ROM and is responsible  for further initializing the PC,
 performing all POST tests and invoking the other modules as well.
 
 This is the module where we are going to make changes.
 
-### OEM Logo
+### OEM Logo (ID 0x0E)
 This module contains the motherboard logo. For this specific motherboard, the file is in PCX format.
 
 Although it seems useless, this module is extremely useful for us: the BIOS doesn't *need* it,
@@ -264,10 +264,12 @@ In short, we have 198 bytes that can be completely erased/replaced from `0x114b7
 Isn't it amazing?
 
 Okay, let's say you want to inject some code that changes the CPU name, which is saved at the
-physical address `0xfd301 (F000:F3D01)`.
+physical address `0xfd301 (F000:3D01)`.
 
 You could do something like:
 ```asm
+; File: mycode.asm
+
 [BITS 16]
 [ORG 0x1138] ; 4000:1138
 
@@ -291,10 +293,10 @@ popf
 popa
 ret
 
-cpu_model: db 'MyCPU', 0
-cpu_model_len equ $-cpu_model
+cpu_model_str: db 'MyCPU', 0
+cpu_model_str_len equ $-cpu_model_str
 
-times 198-($-$$) db 0x90 # Padding
+times 198-($-$$) db 0x90 ; Padding
 ```
 You can now build with:
 ```bash
@@ -312,3 +314,118 @@ to be flashed.
 This is the offset from the EIP at which the function resides in real memory (`4000:1138`).
 This value was obtained via memory dump with the `mdump` tool. _Whenever_ you make memory
 references within your own code, change the ORG directive to the appropriate value.
+
+#### 2. Call to elsewhere
+The replacement method is quite limited: it's hard to find locations that can be
+replaced/deleted completely. The most common approach is:
+- Find an empty place in your `post.rom` (like some place filled with 0s)
+- Add a call to there from somewhere
+- Add to the end of your new code the instructions you replaced when adding your call
+
+this way, it is possible to get larger portions of code available, without having to delete
+important instructions, because now your code will backup them.
+
+Unfortunately, there is very little space available within the 512kB ROM, so I will need to
+take a different approach. Instead of looking for free space inside the `post.rom` module,
+I will use the logo module to add instructions. This way, we can increase the available
+space from a mere 198 bytes to a whopping 20kB, or ~103 times more.
+
+To do this, we need to do it in two steps:
+1. Edit the `post.rom` module to invoke the code inside the logo module
+2. Edit the logo module (I'll call it `logo.rom`) with your code.
+
+For the first step, we must first decide where to inject the code... and since we're working
+with the logo, a good place to do so is right before the video is set up.
+
+How can we find it? Since the logo is a colored image with pixels (rather than text), the
+video mode should be appropriate for that. What about
+`int 0x10, AX = 0x4F02 - Set VBE Video Mode`?
+
+```bash
+$ ndisasm post.rom -b16 | grep "4f02" -C 4
+00017EF2  06                push es
+00017EF3  1E                push ds
+00017EF4  07                pop es
+00017EF5  8BD8              mov bx,ax
+00017EF7  B8024F            mov ax,0x4f02 ┐ our target! 0x17ef7
+00017EFA  CD10              int 0x10      ┘
+00017EFC  07                pop es
+00017EFD  C3                ret
+00017EFE  6650              push eax
+```
+bingo! thats exactly what we are looking for!
+
+With our target in hands, we can now create a file called `mycall.asm` with the
+following content:
+```asm
+[BITS 16]
+call 0xFFFF:0x8A10 ; far call occupies 5 bytes
+```
+and build&inject with:
+```bash
+$ nasm -fbin mycall.asm -o mycall.bin
+$ dd if=mycall.bin of=post.rom bs=1 seek=$((0x17ef7)) conv=notrunc
+```
+
+Now, you might be wondering: what address is this `FFFF:8A10`? This is the address that the
+logo module is loaded into the memory (obtained via `mdump`).
+
+Okay, now let's move on to the logo:
+
+Make the following modifications to `mycode.asm`:
+```patch
+--- mycode.asm	2023-02-16 17:30:08.449703077 -0300
++++ mycode_new.asm	2023-02-16 18:25:05.342841097 -0300
+@@ -1,7 +1,10 @@
+ ; File: mycode.asm
+ 
+ [BITS 16]
+-[ORG 0x1138] ; 4000:1138
++[ORG 0x8210] ; FFFF:8210
++
++; Dummy 2kB logo
++times 2048 db 0x0a
+ 
+ pusha ; Always backup registers
+ pushf ; and flags that you touch
+@@ -21,9 +24,11 @@
+ 
+ popf
+ popa
+-ret
++
++mov ax, 0x4f02 ; Restore overwritten
++int 0x10       ; instructions
++
++retf
+ 
+ cpu_model_str: db 'MyCPU', 0
+ cpu_model_str_len equ $-cpu_model_str
+-
+-times 198-($-$$) db 0x90 ; Padding
+```
+There are 5 changes that need to be commented:
+1. The `ORG` directive has changed. Since the logo is loaded at `FFFF:8210` (or `0x108200`), you
+need to change the ORG to generate the labels at the correct offsets.
+
+2. There is a 2kB 'dummy logo'. This turned out to be necessary as the BIOS image decompressor
+tries to decode the code as an image and displays 'glitch art' on the screen (quite scary at
+first). Filling in '0xa' causes nothing to be displayed on the screen, but the code continues
+to run as before. This also explains why the previous far call is made to `FFFF:8A10` instead
+of `FFFF:8210`, since: `8210+2kB = 8A10`.
+
+3. Since the code is invoked from a far call, you need to use a far ret.
+
+4. The previously overwritten instructions (in `mycall.bin`) are restored in the logo module,
+just before the code returns.
+
+5. There is no need to padding anymore.
+
+After that, just compile with:
+```bash
+$ nasm -fbin mycode.asm -o mycode.bin
+```
+and `mycode.bin` will be your new logo module.
+
+To create your new ROM, just replace the POST ROM and logo modules with their respective versions
+modified: `post.rom`, and `mycode.bin` on `MMTool`. Save the new ROM, and it will be ready to flash.
