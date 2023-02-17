@@ -437,3 +437,12 @@ flashed.
 > in doubt, only use memory below 1MB.
 
 ## Flashing the ROM
+Flashing the ROM can be done in multiple ways. For AMI BIOS, there are the official AMI tools:
+`AFUDOS` and `AFUWIN`, for MS-DOS and Windows, respectively.
+
+In addition, there is the possibility of external flash, either with its own recorder, or even
+with a Raspberry Pi.
+
+### AFUDOS
+Burn a bootable image of FreeDOS (whether via CD, pendrive, directly on the HDD) and copy the
+binary of your modified ROM to it, along with AFUDOS.
