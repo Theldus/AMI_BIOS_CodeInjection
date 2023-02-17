@@ -361,7 +361,7 @@ following content:
 [BITS 16]
 call 0xFFFF:0x8A10 ; far call occupies 5 bytes
 ```
-and build&inject with:
+build and inject with:
 ```bash
 $ nasm -fbin mycall.asm -o mycall.bin
 $ dd if=mycall.bin of=post.rom bs=1 seek=$((0x17ef7)) conv=notrunc
@@ -428,4 +428,12 @@ $ nasm -fbin mycode.asm -o mycode.bin
 and `mycode.bin` will be your new logo module.
 
 To create your new ROM, just replace the POST ROM and logo modules with their respective versions
-modified: `post.rom`, and `mycode.bin` on `MMTool`. Save the new ROM, and it will be ready to flash.
+modified: `post.rom`, and `mycode.bin` on `MMTool`. Save the new ROM, and it will be ready to be
+flashed.
+
+> :warning: **Warning:** Be careful with the locations you choose to inject the code. This example
+> only works because the address, although above 1MB, is still accessible within the range that A20
+> reaches (`1MB+64kB-16 bytes`) and the A20 Gate is already enabled at this point in the code. When
+> in doubt, only use memory below 1MB.
+
+## Flashing the ROM
