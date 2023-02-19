@@ -478,3 +478,15 @@ restart automatically.
 > :warning: **Warning:** ___Never___ flash a modified ROM unless you have a way to reprogram
 it externally, such as a rom programmer, a Raspberry Pi, or another microcontroller that
 performs a similar function.
+
+## Acknowledgements
+This project was created in collaboration with [@rlaneth], so I'd like to express my sincere
+thanks to him for his valuable contributions to this project. Together, we reverse engineered
+AMI and Award BIOSes, gaining invaluable insights and making significant progress in our
+understanding of this complex subject matter.
+
+I'd also like to thank [Pinczakko's BIOS articles] for his invaluable amount of information,
+which inspired us to continue our research and exploration.
+
+[Pinczakko's BIOS articles]: https://sites.google.com/site/pinczakko/bios-articles
+[@rlaneth]: https://github.com/rlaneth
