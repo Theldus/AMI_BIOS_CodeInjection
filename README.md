@@ -433,7 +433,7 @@ flashed.
 
 > :warning: **Warning:** Be careful with the locations you choose to inject the code. This example
 > only works because the address, although above 1MB, is still accessible within the range that A20
-> reaches (`1MB+64kB-16 bytes`) and the A20 Gate is already enabled at this point in the code. When
+> reaches (`1MB+64kB-16 bytes`) and the A20 line is already enabled at this point in the code. When
 > in doubt, only use memory below 1MB.
 
 ## Flashing the ROM
@@ -443,12 +443,34 @@ Flashing the ROM can be done in multiple ways. For AMI BIOS, there are the offic
 In addition, there is the possibility of external flash, either with a flash programmer, or even
 with a Raspberry Pi (using SPI).
 
-### AFUDOS
-Create a bootable image of FreeDOS (whether via CD, pendrive, directly on the HDD) and copy the
-binary of your modified ROM to it, along with AFUDOS.
+### AFUDOS + USB Flash Drive
+Download and/or create a bootable FreeDOS image with `AFUDOS.EXE` and the new ROM inside. 
 
-Once you've booted FreeDOS, invoke AFUDOS passing your new ROM as a parameter and wait a few
-seconds, the PC will restart automatically:
+You can optionally download a [bootable FreeDOS image] already prepared with AFUDOS inside,
+and then:
+
+```bash
+# Mount the image and copy the BIOS ROM to it:
+$ sudo mount -o loop BOOT_AFUDOS_4-08p.IMG /path/to/mount
+
+# Copy the new rom to the bootable image
+$ sudo cp NEWROM.ROM /path/to/mount
+
+# Umount
+sudo umount /path/to/mount
+
+# Copy to the USB Flash Drive
+$ sudo dd if=BOOT_AFUDOS_4-08p.IMG of=/dev/sdX
+$ sync
+```
+Once the USB Flash Drive has been properly prepared, boot into FreeDOS and from there:
+
 ```bash
 C:\> AFUDOS.EXE NEWROM.ROM
 ```
+invoke AFUDOS passing your new ROM as a parameter and wait a few seconds, the PC will
+restart automatically.
+
+> :warning: **Warning:** ___Never___ flash a modified ROM unless you have a way to reprogram
+it externally, such as a rom programmer, a Raspberry Pi, or another microcontroller that
+performs a similar function.
