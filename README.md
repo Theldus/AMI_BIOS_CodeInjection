@@ -36,11 +36,11 @@ but _when_. During my journey I had to easily reflash more than __50 times!__.
 ### 3. Needed software:
 - Windows (for MMTool, unfortunately)
 - Linux (preferrably, for the remaining)
-- MMTool 3.22 w/ module 1B unlocked: MMTool is an official AMI tool for extracting and
+- [MMTool 3.22] w/ module 1B unlocked: MMTool is an official AMI tool for extracting and
 inserting modules into the BIOS. However, the module we will be working on in this article
 (1B) is blocked by default. Therefore, we need this modded version to proceed (more details
 later).
-- AFUDOS v4.08p: AMI's Tool to Flash BIOS ROM
+- [AFUDOS v4.08p]: AMI's Tool to Flash BIOS ROM
 - [amideco]: (Optional) To extract AMI ROM modules on Linux
 - [FreeDOS]: In order to run AFUDOS.EXE and reflash without external tools
 - Hex editor for disassembling and static analysis: I highly recommend [HT],
@@ -52,6 +52,8 @@ later).
 [ImHex]: https://github.com/WerWolv/ImHex
 [FreeDOS]: https://www.freedos.org/
 [amideco]: https://manpages.ubuntu.com/manpages/trusty/man1/amideco.1.html
+[AFUDOS v4.08p]: https://archive.org/details/afudos_4-08p
+[MMTool 3.22]: https://archive.org/details/mmtool_bkmod
 
 ## BIOS modules
 Every (as far as I know) BIOS ROM is made up of modules. These modules can be compressed or
@@ -448,6 +450,8 @@ Download and/or create a bootable FreeDOS image with `AFUDOS.EXE` and the new RO
 
 You can optionally download a [bootable FreeDOS image] already prepared with AFUDOS inside,
 and then:
+
+[bootable FreeDOS image]: https://archive.org/details/afudos_4-08p
 
 ```bash
 # Mount the image and copy the BIOS ROM to it:
