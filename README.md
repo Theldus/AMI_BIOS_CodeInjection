@@ -490,3 +490,11 @@ which inspired us to continue our research and exploration.
 
 [Pinczakko's BIOS articles]: https://sites.google.com/site/pinczakko/bios-articles
 [@rlaneth]: https://github.com/rlaneth
+
+## References
+Some good references that helped a lot in the BIOS reverse engineering:
+- [Pinczakko's BIOS articles]
+- [IBM PC Technical Reference](https://www.pcjs.org/documents/manuals/ibm/)
+- [IBM PC BIOS source code](https://github.com/philspil66/IBM-PC-BIOS)
+- [System BIOS for IBM PC XT/XT/AT Computers and Compatibles](https://archive.org/details/System_BIOS_for_IBM_PC-XT-AT_Computersand_Compatibles_Phoenix)
+- [Intel Software Developer](https://software.intel.com/en-us/articles/intel-sdm)
