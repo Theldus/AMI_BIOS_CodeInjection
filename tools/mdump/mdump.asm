@@ -241,5 +241,9 @@ UART_FCR_TRIG_14 equ 0x0  ; Trigger level 14-byte.
 ; Line status register
 UART_LSR_TFE equ 0x20 ; Transmitter FIFO Empty.
 
-times 510-($-$$) db 0
-dw 0AA55h
+; Some magic number
+times 506-($-$$) db 0
+dd 0xB16B00B5
+
+; Signature
+dw 0xAA55

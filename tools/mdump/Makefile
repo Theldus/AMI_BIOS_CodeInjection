@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 CC ?= cc
-CFLAGS += -Wall -Wextra -pedantic
+CFLAGS += -Wall -Wextra -pedantic -O2
 OBJ = mdump.o
 BIN = mdump mdump.img
 

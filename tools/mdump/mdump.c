@@ -22,17 +22,20 @@
  * SOFTWARE.
  */
 
+#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <termios.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <sys/mman.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -43,11 +46,22 @@
 static int sfd;
 static struct termios savetty;
 
-/**/
+/* Error and exit */
 #define errx(...) \
 	do { \
 		fprintf(stderr, __VA_ARGS__); \
 		exit(1); \
+	} while (0)
+
+
+/* Error */
+#define err(...) fprintf(stderr, __VA_ARGS__)
+
+/* Error and goto */
+#define errto(lbl, ...) \
+	do { \
+		fprintf(stderr, __VA_ARGS__); \
+		goto lbl; \
 	} while (0)
 
 /* Restore the tty/device while exiting. */
@@ -146,6 +160,106 @@ int setup_serial(const char *sdev)
 	return (sfd);
 }
 
+/**
+ * @brief Perform some sanity checks on the output
+ * file.
+ *
+ * Passing these checks does not mean that the file
+ * is (with 100% of certainty) fine, but is very
+ * likely to.
+ *
+ * @param ofd        Output file fd.
+ * @param amnt_bytes Output file expected size.
+ *
+ * @return Returns 0 if success, -1 otherwise.
+ */
+static int check_output(int ofd, size_t amnt_bytes)
+{
+	uint8_t *out_found = NULL;
+	uint8_t *out_file  = NULL;
+	struct stat st = {0};
+	off_t out_size =  0;
+	int shift      =  0;  /* Amount of bytes to shift. */
+	int ret        = -1;
+
+	fstat(ofd, &st);
+	out_size = st.st_size;
+
+	if ((size_t)out_size != amnt_bytes)
+		err("WARNING: Output size (%zu) differs from expected: "
+			"%zu bytes!\n", st.st_size, amnt_bytes);
+
+	/* If not a boot sector code, we cant proceed. */
+	if (!stat("mdump.img", &st) && st.st_size != 512)
+		errto(out0, "INFO: mdump.img file is not a bootable file!\n"
+					"      I'm unable to check for consistency");
+
+	/* Check if there is room to check. */
+	if (out_size < 0x7c00 + 512)
+		goto out0;
+
+	lseek(ofd, 0, SEEK_SET);
+
+	/* Mmap the output file. */
+	out_file = mmap(0, out_size, PROT_READ, MAP_PRIVATE, ofd, 0);
+	if (out_file == MAP_FAILED)
+		errto(out0, "ERROR: Failed to mmap: %s\n", strerror(errno));
+
+	/* Check for alignment. */
+	if (out_file[0x7c00 + 510] == 0x55 &&
+		out_file[0x7c00 + 511] == 0xaa)
+	{
+		goto check_a20; /* is aligned, do not align this file. */
+	}
+
+	err("WARNING: Output is not properly aligned!\n");
+
+	/* Try to find our magic number: 0xB16B00B5 (little endian). */
+	out_found = memmem(out_file, out_size, "\xb5\x00\x6b\xb1", 4);
+	if (!out_found)
+		errto(out1, "ERROR: Magic number not found, output file should be "
+			"discarded!\n");
+
+	shift = ((out_found - out_file) - 0x7c00) - 506;
+
+	err("WARNING: Found magic number!, output file is %+d bytes "
+		"shifted!\n", shift);
+
+check_a20:
+	if ((out_size >= 0x7c00 + 512 + (1<<20) + shift) &&
+		out_file[0x7c00 + 510 + (1<<20) + shift] == 0x55 &&
+		out_file[0x7c00 + 511 + (1<<20) + shift] == 0xaa)
+	{
+		errto(out1, "WARNING: A20 line looks like is *not* enabled!\n");
+	}
+
+	ret = 0;
+	printf("Success!\n");
+out1:
+	munmap(out_file, out_size);
+out0:
+	return (ret);
+}
+
+/**
+ * @brief Usage
+ * @param prg_name Program name
+ */
+static void usage(const char *prg_name)
+{
+	errx(
+		"Usage: %s [-s|/serial/path] output_file output_file_length\n"
+		"Arguments:\n"
+		"  -s:           Uses a TCP connection, listening to 2345\n"
+		"  /serial/path: Uses a serial cable for the given path\n"
+		"Example:\n"
+		"  # Dumps 4M listening to a socket: \n"
+		"  %s -s dump4M.img $((4<<20))\n\n"
+		"  # Dumps 4M using a serial cable: \n"
+		"  %s /dev/ttyUSB0 dump4M.img $((4<<20))\n",
+		prg_name, prg_name, prg_name);
+}
+
 /* Main =). */
 int main(int argc, char **argv)
 {
@@ -160,8 +274,7 @@ int main(int argc, char **argv)
 	int ofd;
 
 	if (argc != 4)
-		errx("Usage: %s [-s|/serial/device/path] output_file "
-			"output_file_length\n", argv[0]);
+		usage(argv[0]);
 
 	out     = argv[2];
 	out_len = atoi(argv[3]);
@@ -171,7 +284,7 @@ int main(int argc, char **argv)
 	printf("Waiting to read %zd bytes...\n", out_len);
 
 	/* Open output file. */
-	if ((ofd = creat(out, 0644)) < 0)
+	if ((ofd = open(out, O_CREAT|O_RDWR|O_TRUNC, 0644)) < 0)
 		errx("Failed to open: %s, (%s)", out, strerror(errno));
 
 	/* If not socket. */
@@ -207,6 +320,9 @@ int main(int argc, char **argv)
 	} while (out_len > 0);
 
 	fputs("] done =)\n", stderr);
+
+	puts("Checking output file...");
+	check_output(ofd, atoi(argv[3]));
 
 	close(ifd);
 	close(ofd);
