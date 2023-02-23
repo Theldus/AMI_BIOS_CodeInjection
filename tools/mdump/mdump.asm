@@ -21,7 +21,7 @@
 ; SOFTWARE.
 
 [BITS 16]
-[ORG 0x7C00]
+[ORG 0x7C00] ; >> CHANGE_HERE <<
 
 ; --------------------------------
 ; Macros
@@ -71,6 +71,7 @@ protected_mode:
 	; UART
 	call setup_uart
 
+%ifndef BIOS
 	; Clear first line
 	mov edi, 0xB8000
 	xor eax, eax
@@ -84,6 +85,7 @@ protected_mode:
 	; Closing brace
 	mov byte [0xB8000 + (49 * 2) + 0], ']'
 	mov byte [0xB8000 + (49 * 2) + 1], 0x1B
+%endif
 
 	; ------- Memory dump -------------
 	cld
@@ -94,6 +96,7 @@ dump:
 	lodsd
 	write_dword_serial eax
 
+%ifndef BIOS
 	; Check the percentage
 	inc dword [dump_block_bytes] ; Update counter
 	mov eax,  [dump_block_bytes] ; read it again
@@ -108,14 +111,18 @@ dump:
 	add dword [dump_vg_off], 2
 
 	.not_bar:
+%endif
 		loop dump
 
+%ifndef BIOS
 	; Done
 	mov esi, dump_done
 	call print_text
+%endif
 
 	hang: jmp hang
 
+%ifndef BIOS
 ;
 ; Write a NULL-terminated text into the screen
 ; Parameters:
@@ -134,6 +141,7 @@ print_text:
 	.out:
 		mov [dump_vg_off], edi ; Update curr vid memory
 		ret
+%endif
 
 ;
 ; Configure our UART with the following parameters:
@@ -195,14 +203,16 @@ gdt_data:        ; Data segment, read/write, expand down
 gdt_end:
 gdt_desc:
 	dw gdt_end - gdt - 1  ; Limit (size)
-	dd gdt                ; Address of the GDT
+	dd gdt                ; Physical GDT address ; >> CHANGE_HERE <<
 
+%ifndef BIOS
 ; Dump aux data
 dump_str:         db 'Dumping memory: [', 0
 dump_done:        db '] done =)', 0
 dump_block_bytes: dd 0                     ; Block bytes until now
 dump_bpb:         dd DUMP_AMOUNT/DUMP_BARS ; Bytes per bar (64 = 100%)
 dump_vg_off:      dd 0x0B8000
+%endif
 
 ; --------------------------------
 ; Constants
@@ -241,9 +251,11 @@ UART_FCR_TRIG_14 equ 0x0  ; Trigger level 14-byte.
 ; Line status register
 UART_LSR_TFE equ 0x20 ; Transmitter FIFO Empty.
 
+%ifndef BIOS
 ; Some magic number
 times 506-($-$$) db 0
 dd 0xB16B00B5
 
 ; Signature
 dw 0xAA55
+%endif

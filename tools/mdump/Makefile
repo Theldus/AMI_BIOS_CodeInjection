@@ -25,6 +25,11 @@ CFLAGS += -Wall -Wextra -pedantic -O2
 OBJ = mdump.o
 BIN = mdump mdump.img
 
+ifeq ($(BIOS),yes)
+	CFLAGS   += -DBIOS
+	ASMFLAGS += -DBIOS
+endif
+
 .PHONY: all qemu clean
 
 all: $(BIN)

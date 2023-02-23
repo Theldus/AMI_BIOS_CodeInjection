@@ -173,6 +173,7 @@ int setup_serial(const char *sdev)
  *
  * @return Returns 0 if success, -1 otherwise.
  */
+#ifndef BIOS
 static int check_output(int ofd, size_t amnt_bytes)
 {
 	uint8_t *out_found = NULL;
@@ -230,7 +231,7 @@ check_a20:
 		out_file[0x7c00 + 510 + (1<<20) + shift] == 0x55 &&
 		out_file[0x7c00 + 511 + (1<<20) + shift] == 0xaa)
 	{
-		errto(out1, "WARNING: A20 line looks like is *not* enabled!\n");
+		errto(out1, "WARNING: A20 line looks like its *not* enabled!\n");
 	}
 
 	ret = 0;
@@ -240,6 +241,7 @@ out1:
 out0:
 	return (ret);
 }
+#endif
 
 /**
  * @brief Usage
@@ -321,8 +323,10 @@ int main(int argc, char **argv)
 
 	fputs("] done =)\n", stderr);
 
+#ifndef BIOS
 	puts("Checking output file...");
 	check_output(ofd, atoi(argv[3]));
+#endif
 
 	close(ifd);
 	close(ofd);
