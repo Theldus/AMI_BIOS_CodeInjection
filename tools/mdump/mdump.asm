@@ -217,10 +217,17 @@ dump_vg_off:      dd 0x0B8000
 ; --------------------------------
 ; Constants
 ; --------------------------------
+%ifdef DUMP_BYTES
+	%if DUMP_BYTES % 4 != 0
+		%error "DUMP_BYTES must be multiple of 4"
+	%endif
+%else
+	%define DUMP_BYTES (4<<20)
+%endif
 
 ; General
 ; -------
-DUMP_AMOUNT equ ((4<<20) >> 2)
+DUMP_AMOUNT equ ((DUMP_BYTES) >> 2)
 DUMP_BARS   equ 32
 
 ; UART Constants

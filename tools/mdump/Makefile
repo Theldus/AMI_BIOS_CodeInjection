@@ -30,6 +30,11 @@ ifeq ($(BIOS),yes)
 	ASMFLAGS += -DBIOS
 endif
 
+ifneq ($(DUMP_BYTES),)
+	CFLAGS   += -DDUMP_BYTES=$(DUMP_BYTES)
+	ASMFLAGS += -DDUMP_BYTES=$(DUMP_BYTES)
+endif
+
 .PHONY: all qemu clean
 
 all: $(BIN)

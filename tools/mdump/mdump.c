@@ -39,6 +39,15 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+/* Amount of bytes to dump, default = 4MiB. */
+#ifdef DUMP_BYTES
+	#if DUMP_BYTES % 4 != 0
+		#error "DUMP_BYTES must be multiple of 4"
+	#endif
+#else
+	#define DUMP_BYTES (4<<20)
+#endif
+
 /* Progress amount of bars. */
 #define AMNT_BARS 32
 
@@ -169,12 +178,11 @@ int setup_serial(const char *sdev)
  * likely to.
  *
  * @param ofd        Output file fd.
- * @param amnt_bytes Output file expected size.
  *
  * @return Returns 0 if success, -1 otherwise.
  */
 #ifndef BIOS
-static int check_output(int ofd, size_t amnt_bytes)
+static int check_output(int ofd)
 {
 	uint8_t *out_found = NULL;
 	uint8_t *out_file  = NULL;
@@ -186,9 +194,9 @@ static int check_output(int ofd, size_t amnt_bytes)
 	fstat(ofd, &st);
 	out_size = st.st_size;
 
-	if ((size_t)out_size != amnt_bytes)
+	if (out_size != DUMP_BYTES)
 		err("WARNING: Output size (%zu) differs from expected: "
-			"%zu bytes!\n", st.st_size, amnt_bytes);
+			"%zu bytes!\n", st.st_size, (size_t)DUMP_BYTES);
 
 	/* If not a boot sector code, we cant proceed. */
 	if (!stat("mdump.img", &st) && st.st_size != 512)
@@ -250,15 +258,15 @@ out0:
 static void usage(const char *prg_name)
 {
 	errx(
-		"Usage: %s [-s|/serial/path] output_file output_file_length\n"
+		"Usage: %s [-s|/serial/path] output_file\n"
 		"Arguments:\n"
 		"  -s:           Uses a TCP connection, listening to 2345\n"
 		"  /serial/path: Uses a serial cable for the given path\n"
 		"Example:\n"
-		"  # Dumps 4M listening to a socket: \n"
-		"  %s -s dump4M.img $((4<<20))\n\n"
-		"  # Dumps 4M using a serial cable: \n"
-		"  %s /dev/ttyUSB0 dump4M.img $((4<<20))\n",
+		"  # Dumps listening to a socket: \n"
+		"  %s -s dump4M.img\n\n"
+		"  # Dumps using a serial cable: \n"
+		"  %s /dev/ttyUSB0 dump4M.img\n",
 		prg_name, prg_name, prg_name);
 }
 
@@ -275,11 +283,11 @@ int main(int argc, char **argv)
 	int ifd;
 	int ofd;
 
-	if (argc != 4)
+	if (argc != 3)
 		usage(argv[0]);
 
 	out     = argv[2];
-	out_len = atoi(argv[3]);
+	out_len = DUMP_BYTES;
 	amnt    = out_len / AMNT_BARS; /* amnt of bytes per bar. */
 	rdbytes = 0;
 
@@ -325,7 +333,7 @@ int main(int argc, char **argv)
 
 #ifndef BIOS
 	puts("Checking output file...");
-	check_output(ofd, atoi(argv[3]));
+	check_output(ofd);
 #endif
 
 	close(ifd);
