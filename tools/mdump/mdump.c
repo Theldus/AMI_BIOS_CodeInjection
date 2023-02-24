@@ -39,15 +39,6 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-/* Amount of bytes to dump, default = 4MiB. */
-#ifdef DUMP_BYTES
-	#if DUMP_BYTES % 4 != 0
-		#error "DUMP_BYTES must be multiple of 4"
-	#endif
-#else
-	#define DUMP_BYTES (4<<20)
-#endif
-
 /* Progress amount of bars. */
 #define AMNT_BARS 32
 
@@ -178,11 +169,12 @@ int setup_serial(const char *sdev)
  * likely to.
  *
  * @param ofd        Output file fd.
+ * @param amnt_bytes Output file expected size.
  *
  * @return Returns 0 if success, -1 otherwise.
  */
 #ifndef BIOS
-static int check_output(int ofd)
+static int check_output(int ofd, size_t amnt_bytes)
 {
 	uint8_t *out_found = NULL;
 	uint8_t *out_file  = NULL;
@@ -194,9 +186,9 @@ static int check_output(int ofd)
 	fstat(ofd, &st);
 	out_size = st.st_size;
 
-	if (out_size != DUMP_BYTES)
+	if ((size_t)out_size != amnt_bytes)
 		err("WARNING: Output size (%zu) differs from expected: "
-			"%zu bytes!\n", st.st_size, (size_t)DUMP_BYTES);
+			"%zu bytes!\n", st.st_size, amnt_bytes);
 
 	/* If not a boot sector code, we cant proceed. */
 	if (!stat("mdump.img", &st) && st.st_size != 512)
@@ -252,21 +244,107 @@ out0:
 #endif
 
 /**
+ * @brief Write @p len bytes from @p buf to @p conn.
+ *
+ * Contrary to send(2)/write(2) that might return with
+ * less bytes written than specified, this function
+ * attempts to write the entire buffer, because...
+ * thats the most logical thing to do...
+ *
+ * @param conn Target file descriptor.
+ * @param buf Buffer to be sent.
+ * @param len Amount of bytes to be sent.
+ *
+ * @return Returns 0 if success, -1 otherwise.
+ */
+ssize_t send_all(
+	int conn, const void *buf, size_t len)
+{
+	const char *p;
+	ssize_t ret;
+
+	if (conn < 0)
+		return (-1);
+
+	p = buf;
+	while (len)
+	{
+		ret = write(conn, p, len);
+		if (ret == -1)
+			return (-1);
+		p   += ret;
+		len -= ret;
+	}
+	return (0);
+}
+
+/**
+ *
+ */
+static int wait_ready(int ifd)
+{
+	static const uint8_t magic[] = {0x0b,0xb0,0x01,0xc0};
+	uint8_t c = 0;
+	ssize_t r = 0;
+	int idx   = 0;
+
+	while (1)
+	{
+		r = read(ifd, &c, 1);
+		if (r <= 0)
+			return (-1);
+
+		if (c == magic[idx])
+		{
+			idx++;
+			if (idx == sizeof magic)
+				return (0);
+		}
+		else
+			idx = 0;
+	}
+
+	/* Never reaches. */
+	return (-1);
+}
+
+/**
+ *
+ */
+static void send_amount_and_wait(int ifd, uint32_t length)
+{
+	union len {
+		uint32_t len32;
+		uint8_t  len8[4];
+	} len;
+
+	len.len32 = length;
+
+	/* Wait serial device to be ready. */
+	if (wait_ready(ifd) < 0)
+		errx("Unable to receive message from dbg!\n");
+
+	/* Send amount of bytes. */
+	if (send_all(ifd, len.len8, 4) < 0)
+		errx("Unable to send amount of bytes!\n");
+}
+
+/**
  * @brief Usage
  * @param prg_name Program name
  */
 static void usage(const char *prg_name)
 {
 	errx(
-		"Usage: %s [-s|/serial/path] output_file\n"
+		"Usage: %s [-s|/serial/path] output_file output_file_length\n"
 		"Arguments:\n"
 		"  -s:           Uses a TCP connection, listening to 2345\n"
 		"  /serial/path: Uses a serial cable for the given path\n"
 		"Example:\n"
-		"  # Dumps listening to a socket: \n"
-		"  %s -s dump4M.img\n\n"
-		"  # Dumps using a serial cable: \n"
-		"  %s /dev/ttyUSB0 dump4M.img\n",
+		"  # Dumps 4M listening to a socket: \n"
+		"  %s -s dump4M.img $((4<<20))\n\n"
+		"  # Dumps 4M using a serial cable: \n"
+		"  %s /dev/ttyUSB0 dump4M.img $((4<<20))\n",
 		prg_name, prg_name, prg_name);
 }
 
@@ -283,11 +361,11 @@ int main(int argc, char **argv)
 	int ifd;
 	int ofd;
 
-	if (argc != 3)
+	if (argc != 4)
 		usage(argv[0]);
 
 	out     = argv[2];
-	out_len = DUMP_BYTES;
+	out_len = atoi(argv[3]);
 	amnt    = out_len / AMNT_BARS; /* amnt of bytes per bar. */
 	rdbytes = 0;
 
@@ -302,6 +380,9 @@ int main(int argc, char **argv)
 		ifd = setup_serial(argv[1]);
 	else
 		ifd = setup_server_and_listen(2345);
+
+	/* Wait to dump. */
+	send_amount_and_wait(ifd, out_len);
 
 	fputs("Dumping memory: [                                 ]\r", stderr);
 	fputs("Dumping memory: [", stderr);
@@ -333,7 +414,7 @@ int main(int argc, char **argv)
 
 #ifndef BIOS
 	puts("Checking output file...");
-	check_output(ofd);
+	check_output(ofd, atoi(argv[3]));
 #endif
 
 	close(ifd);

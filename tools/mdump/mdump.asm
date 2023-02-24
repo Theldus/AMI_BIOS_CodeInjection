@@ -26,21 +26,19 @@
 ; --------------------------------
 ; Macros
 ; --------------------------------
+%macro dbg 0
+	xchg bx, bx
+%endmacro
+
+%macro inputb 1
+	mov dx, %1
+	in al, dx
+%endmacro
+
 %macro outbyte 2
 	mov ax, %2
 	mov dx, %1
 	out dx, al
-%endmacro
-
-%macro write_dword_serial 1
-	mov ebx, %1
-	call write_byte_serial
-	shr ebx, 8
-	call write_byte_serial
-	shr ebx, 8
-	call write_byte_serial
-	shr ebx, 8
-	call write_byte_serial
 %endmacro
 
 ; --------------------------------
@@ -53,10 +51,11 @@ cli
 xor ax, ax
 mov ds, ax
 
+; Jump to protected mode
 lgdt [gdt_desc]
 
 mov eax, cr0
-or  eax, 1     ; protec mode
+or  eax, 1     ; protecc mode
 mov cr0, eax
 
 jmp 08h:protected_mode
@@ -65,11 +64,31 @@ jmp 08h:protected_mode
 protected_mode:
 	mov ax, 10h       ; data seg
 	mov ds, ax        ; data seg
+	mov es, ax        ; data seg
 	mov ss, ax        ; stack seg as data seg
 	mov esp, 090000h  ; set stack pointer
 
 	; UART
 	call setup_uart
+
+	; Signal that we're ready
+	mov ebx, 0xc001b00b
+	call write_dword_serial
+
+	; Wait for the length
+	mov edi, DUMP_AMOUNT
+	mov ecx, 4
+
+	wait_len:
+		inputb UART_LSR
+		bt   ax, 0
+		jnc  wait_len
+		inputb UART_RB
+		stosb
+		loop wait_len
+
+	; 'Fix' our DUMP_AMOUNT by /4
+	shr dword [es:DUMP_AMOUNT], 2
 
 %ifndef BIOS
 	; Clear first line
@@ -85,16 +104,22 @@ protected_mode:
 	; Closing brace
 	mov byte [0xB8000 + (49 * 2) + 0], ']'
 	mov byte [0xB8000 + (49 * 2) + 1], 0x1B
+
+	; Calculate dump_bpb
+	mov eax, dword [ds:DUMP_AMOUNT]
+	shr eax, DUMP_BARS_SHIFT
+	mov dword [ds:dump_bpb], eax
 %endif
 
 	; ------- Memory dump -------------
 	cld
 	mov esi, 0
-	mov ecx, DUMP_AMOUNT
+	mov ecx, dword [es:DUMP_AMOUNT]
 dump:
 	; Load 4-bytes and dump
 	lodsd
-	write_dword_serial eax
+	mov ebx, eax
+	call write_dword_serial
 
 %ifndef BIOS
 	; Check the percentage
@@ -177,6 +202,22 @@ write_byte_serial:
 	out dx, al
 	ret
 
+;
+; Write a dword to UART
+;
+; Parameters:
+;   ebx = dword to be written
+;
+write_dword_serial:
+	call write_byte_serial
+	shr ebx, 8
+	call write_byte_serial
+	shr ebx, 8
+	call write_byte_serial
+	shr ebx, 8
+	call write_byte_serial
+	ret
+
 ; --------------------------------
 ; Data
 ; --------------------------------
@@ -203,32 +244,26 @@ gdt_data:        ; Data segment, read/write, expand down
 gdt_end:
 gdt_desc:
 	dw gdt_end - gdt - 1  ; Limit (size)
-	dd gdt                ; Physical GDT address ; >> CHANGE_HERE <<
+	dd gdt ; >> CHANGE_HERE <<  Physical GDT address
 
 %ifndef BIOS
 ; Dump aux data
 dump_str:         db 'Dumping memory: [', 0
 dump_done:        db '] done =)', 0
 dump_block_bytes: dd 0                     ; Block bytes until now
-dump_bpb:         dd DUMP_AMOUNT/DUMP_BARS ; Bytes per bar (64 = 100%)
+dump_bpb:         dd 0 ; DUMP_AMOUNT/DUMP_BARS
+                       ; Bytes per bar (32 = 100%)
 dump_vg_off:      dd 0x0B8000
 %endif
 
 ; --------------------------------
 ; Constants
 ; --------------------------------
-%ifdef DUMP_BYTES
-	%if DUMP_BYTES % 4 != 0
-		%error "DUMP_BYTES must be multiple of 4"
-	%endif
-%else
-	%define DUMP_BYTES (4<<20)
-%endif
 
 ; General
 ; -------
-DUMP_AMOUNT equ ((DUMP_BYTES) >> 2)
-DUMP_BARS   equ 32
+DUMP_AMOUNT:    dd  0
+DUMP_BARS_SHIFT equ 5 ; (32 bars)
 
 ; UART Constants
 ; --------------
@@ -236,6 +271,7 @@ UART_CLOCK_SIGNAL equ 1843200
 UART_BASE         equ 0x3F8
 UART_BAUD         equ 115200 ; 9600 if things go wrong
 UART_DIVISOR      equ UART_CLOCK_SIGNAL / (UART_BAUD << 4)
+UART_RB           equ UART_BASE + 0 ; Receiver Buffer (R).
 UART_FCR          equ UART_BASE + 2 ; FIFO Control Register (W).
 UART_LCR          equ UART_BASE + 3 ; Line Control Register (RW).
 UART_LSR          equ UART_BASE + 5 ; Line Status Register (R).

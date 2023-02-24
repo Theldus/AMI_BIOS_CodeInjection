@@ -1,3 +1,5 @@
 *.img
 *.o
 mdump
+bx_enh_dbg.ini
+

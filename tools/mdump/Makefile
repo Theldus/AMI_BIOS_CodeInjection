@@ -54,6 +54,8 @@ mdump: $(OBJ)
 	$(CC) $^ $(LDFLAGS) $(LDLIBS) -o $@
 
 # Run on Bochs and QEMU
+bochs: mdump.img
+	bochs -q -f .bochsrc.txt
 qemu: mdump.img
 	qemu-system-i386 -boot a -fda mdump.img \
 		-serial tcp:127.0.0.1:2345 -gdb tcp::5678
