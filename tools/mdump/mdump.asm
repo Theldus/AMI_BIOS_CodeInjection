@@ -71,9 +71,24 @@ protected_mode:
 	; UART
 	call setup_uart
 
+	; Create our CRC-32 table
+	call build_crc32_table
+
 	; Signal that we're ready
 	mov ebx, 0xc001b00b
 	call write_dword_serial
+
+%ifndef BIOS
+	; Clear entire screen
+	mov edi, 0xB8000
+	xor eax, eax
+	mov ecx, 2*80*25
+	repe stosb
+
+	; Initial text
+	mov esi, dump_wait_str
+	call print_text
+%endif
 
 	; Wait for the length
 	mov edi, DUMP_AMOUNT
@@ -91,24 +106,9 @@ protected_mode:
 	shr dword [es:DUMP_AMOUNT], 2
 
 %ifndef BIOS
-	; Clear first line
-	mov edi, 0xB8000
-	xor eax, eax
-	mov ecx, 160
-	repe stosb
-
 	; Initial text
 	mov esi, dump_str
 	call print_text
-
-	; Closing brace
-	mov byte [0xB8000 + (49 * 2) + 0], ']'
-	mov byte [0xB8000 + (49 * 2) + 1], 0x1B
-
-	; Calculate dump_bpb
-	mov eax, dword [ds:DUMP_AMOUNT]
-	shr eax, DUMP_BARS_SHIFT
-	mov dword [ds:dump_bpb], eax
 %endif
 
 	; ------- Memory dump -------------
@@ -118,30 +118,25 @@ protected_mode:
 dump:
 	; Load 4-bytes and dump
 	lodsd
+
+	; Update CRC-32 value
+	call update_crc
+
+	; Send over serial
 	mov ebx, eax
+	call write_dword_serial
+	loop dump
+
+	;
+	; Done, now we send our calculated CRC-32 value
+	;
+	mov ebx, dword [es:CRC_VALUE]
+	not ebx
 	call write_dword_serial
 
 %ifndef BIOS
-	; Check the percentage
-	inc dword [dump_block_bytes] ; Update counter
-	mov eax,  [dump_block_bytes] ; read it again
-	cmp eax,  [dump_bpb]  ; compare with bytes per bar
-	jne .not_bar
-	mov dword [dump_block_bytes], 0 ; Zero again
-
-	; Add a new bar
-	mov eax, [dump_vg_off]
-	mov byte [eax+0], '#'
-	mov byte [eax+1], 0x1B
-	add dword [dump_vg_off], 2
-
-	.not_bar:
-%endif
-		loop dump
-
-%ifndef BIOS
 	; Done
-	mov esi, dump_done
+	mov esi, dump_done_str
 	call print_text
 %endif
 
@@ -218,6 +213,71 @@ write_dword_serial:
 	call write_byte_serial
 	ret
 
+;
+; Generate a CRC-32 table
+;
+; Based on:
+;   https://lxp32.github.io/docs/a-simple-example-crc32-calculation/
+;
+build_crc32_table:
+	mov edi, CRC_TBL_ADDR
+	xor ecx, ecx
+	; ecx = counter/i/j
+	; eax = crc
+	; ebx = ch
+	; edx = b
+	.outer: ; 256
+		mov  ebx, ecx ; ch  = i
+		xor  eax, eax ; crc = 0
+		push ecx      ; backup outer counter
+		mov  ecx, 8   ; ecx = j = 0
+		.inner: ; 8
+			mov edx, ebx ; b = ch
+			xor edx, eax ; b = b^crc
+			and edx, 1   ; b = b & 1
+			shr eax, 1   ; crc >>= 1
+			cmp edx, 0   ; if (b)
+			je  .skip
+			xor eax, 0xEDB88320 ; crc = crc^0xEDB88320
+		.skip:
+			shr  ebx, 1   ; ch >>= 1
+			loop .inner
+		pop ecx ; restore outer counter
+		stosd   ; crc32_table[i] = crc/eax
+		inc ecx
+		cmp ecx, 256
+		jl .outer
+	ret
+
+;
+; Update the CRC-32 value for a given dword
+;
+; Parameters:
+;   eax = dword to be crc'ed
+; Register usage:
+;   ebx = t
+;   edx = crc
+;   eax = dword crc'ed
+;
+update_crc:
+	push eax
+	push ecx
+	mov  ecx, 4
+	mov  edx, dword [es:CRC_VALUE]
+	.crc_calc_loop:
+		movzx ebx, al   ; t = s[0]
+		xor   ebx, edx  ; ch ^ crc
+		and   ebx, 0xFF ; & 0xFF
+		shr   edx, 8    ; crc>>8
+		xor   edx, dword [es:CRC_TBL_ADDR+(ebx*4)]
+		shr   eax, 8
+		loop  .crc_calc_loop
+	; Save our new CRC
+	mov dword [es:CRC_VALUE], edx
+	pop ecx
+	pop eax
+	ret
+
 ; --------------------------------
 ; Data
 ; --------------------------------
@@ -248,17 +308,20 @@ gdt_desc:
 
 %ifndef BIOS
 ; Dump aux data
-dump_str:         db 'Dumping memory: [', 0
-dump_done:        db '] done =)', 0
-dump_block_bytes: dd 0                     ; Block bytes until now
-dump_bpb:         dd 0 ; DUMP_AMOUNT/DUMP_BARS
-                       ; Bytes per bar (32 = 100%)
+dump_wait_str:    db 'Waiting for receiver...', 0
+dump_str:         db ' Dumping...', 0
+dump_done_str:    db ' Done', 0
 dump_vg_off:      dd 0x0B8000
 %endif
 
 ; --------------------------------
 ; Constants
 ; --------------------------------
+
+; CRC-32
+; ------
+CRC_TBL_ADDR equ 0x90000 ; right after stack
+CRC_VALUE dd 0xFFFFFFFF
 
 ; General
 ; -------

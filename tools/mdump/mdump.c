@@ -43,8 +43,17 @@
 #define AMNT_BARS 32
 
 /* Serial fd. */
-static int sfd;
+static int is_serial;
+static int serial_fd;
 static struct termios savetty;
+
+/* Mmaped outfile file. */
+static uint8_t *out_file;
+static off_t out_size;
+static int out_fd;
+
+/* CRC-32 table. */
+uint32_t crc32_table[256];
 
 /* Error and exit */
 #define errx(...) \
@@ -65,8 +74,67 @@ static struct termios savetty;
 	} while (0)
 
 /* Restore the tty/device while exiting. */
-static void restore_tty(void) {
-	tcsetattr(sfd, TCSANOW, &savetty);
+static void restore_settings(void)
+{
+	if (is_serial && serial_fd)
+	{
+		tcsetattr(serial_fd, TCSANOW, &savetty);
+		close(serial_fd);
+	}
+	if (out_fd)
+		close(out_fd);
+	if (out_file)
+		munmap(out_file, out_size);
+}
+
+/**
+ * @brief Creates the CRC-32 table
+ */
+void build_crc32_table(void)
+{
+	uint32_t i, j;
+	uint32_t crc;
+	uint32_t ch;
+	uint32_t b;
+
+	for (i = 0; i < 256; i++)
+	{
+		ch  = i;
+		crc = 0;
+		for (j = 0; j < 8; j++)
+		{
+			b = (ch ^ crc) & 1;
+			crc >>= 1;
+			if (b)
+				crc = crc ^ 0xEDB88320;
+			ch >>= 1;
+		}
+		crc32_table[i] = crc;
+	}
+}
+
+/**
+ * @brief Calculates the CRC-32 checksum for the
+ * given buffer @p buff.
+ *
+ * @param buff   Input buffer.
+ * @param length Buffer length.
+ *
+ * @return Returns the calculated CRC-32.
+ */
+uint32_t do_crc32(const uint8_t *buff, size_t length)
+{
+	uint32_t crc;
+	uint32_t t;
+	size_t i;
+
+	crc = 0xFFFFFFFF;
+	for (i = 0; i < length; i++)
+	{
+		t = (buff[i] ^ crc) & 0xFF;
+		crc = (crc >> 8) ^ crc32_table[t];
+	}
+	return (~crc);
 }
 
 /**
@@ -80,7 +148,6 @@ static void restore_tty(void) {
 int setup_server_and_listen(uint16_t port)
 {
 	struct sockaddr_in server;
-	int cli_fd;
 	int srv_fd;
 	int reuse;
 
@@ -109,13 +176,13 @@ int setup_server_and_listen(uint16_t port)
 	listen(srv_fd, 1);
 
 	/* Blocks in accept() until someone connects. */
-	cli_fd = accept(srv_fd, NULL, NULL);
-	if (cli_fd < 0)
+	serial_fd = accept(srv_fd, NULL, NULL);
+	if (serial_fd < 0)
 		errx("Failed to accept connection!\n");
 
 	/* Close server. */
 	close(srv_fd);
-	return (cli_fd);
+	return (serial_fd);
 }
 
 /**
@@ -127,15 +194,16 @@ int setup_server_and_listen(uint16_t port)
  */
 int setup_serial(const char *sdev)
 {
-	int sfd;
 	struct termios tty;
 
+	is_serial = 1;
+
 	/* Open device. */
-	if ((sfd = open(sdev, O_RDWR | O_NOCTTY)) < 0)
+	if ((serial_fd = open(sdev, O_RDWR | O_NOCTTY)) < 0)
 		errx("Failed to open: %s, (%s)", sdev, strerror(errno));
 
 	/* Attributes. */
-	if (tcgetattr(sfd, &tty) < 0)
+	if (tcgetattr(serial_fd, &tty) < 0)
 		errx("Failed to get attr: (%s)", strerror(errno));
 
 	savetty = tty;
@@ -152,12 +220,10 @@ int setup_serial(const char *sdev)
 
 	printf("Device %s opened for reading...\n", sdev);
 
-	if (tcsetattr(sfd, TCSANOW, &tty) < 0)
+	if (tcsetattr(serial_fd, TCSANOW, &tty) < 0)
 		errx("Failed to set attr: (%s)", strerror(errno));
 
-	/* Restore tty at exit. */
-	atexit(restore_tty);
-	return (sfd);
+	return (serial_fd);
 }
 
 /**
@@ -168,23 +234,17 @@ int setup_serial(const char *sdev)
  * is (with 100% of certainty) fine, but is very
  * likely to.
  *
- * @param ofd        Output file fd.
  * @param amnt_bytes Output file expected size.
  *
  * @return Returns 0 if success, -1 otherwise.
  */
 #ifndef BIOS
-static int check_output(int ofd, size_t amnt_bytes)
+static int check_output(size_t amnt_bytes)
 {
 	uint8_t *out_found = NULL;
-	uint8_t *out_file  = NULL;
 	struct stat st = {0};
-	off_t out_size =  0;
 	int shift      =  0;  /* Amount of bytes to shift. */
 	int ret        = -1;
-
-	fstat(ofd, &st);
-	out_size = st.st_size;
 
 	if ((size_t)out_size != amnt_bytes)
 		err("WARNING: Output size (%zu) differs from expected: "
@@ -199,13 +259,6 @@ static int check_output(int ofd, size_t amnt_bytes)
 	if (out_size < 0x7c00 + 512)
 		goto out0;
 
-	lseek(ofd, 0, SEEK_SET);
-
-	/* Mmap the output file. */
-	out_file = mmap(0, out_size, PROT_READ, MAP_PRIVATE, ofd, 0);
-	if (out_file == MAP_FAILED)
-		errto(out0, "ERROR: Failed to mmap: %s\n", strerror(errno));
-
 	/* Check for alignment. */
 	if (out_file[0x7c00 + 510] == 0x55 &&
 		out_file[0x7c00 + 511] == 0xaa)
@@ -218,7 +271,7 @@ static int check_output(int ofd, size_t amnt_bytes)
 	/* Try to find our magic number: 0xB16B00B5 (little endian). */
 	out_found = memmem(out_file, out_size, "\xb5\x00\x6b\xb1", 4);
 	if (!out_found)
-		errto(out1, "ERROR: Magic number not found, output file should be "
+		errto(out0, "ERROR: Magic number not found, output file should be "
 			"discarded!\n");
 
 	shift = ((out_found - out_file) - 0x7c00) - 506;
@@ -231,13 +284,11 @@ check_a20:
 		out_file[0x7c00 + 510 + (1<<20) + shift] == 0x55 &&
 		out_file[0x7c00 + 511 + (1<<20) + shift] == 0xaa)
 	{
-		errto(out1, "WARNING: A20 line looks like its *not* enabled!\n");
+		errto(out0, "WARNING: A20 line looks like its *not* enabled!\n");
 	}
 
 	ret = 0;
 	printf("Success!\n");
-out1:
-	munmap(out_file, out_size);
 out0:
 	return (ret);
 }
@@ -279,9 +330,67 @@ ssize_t send_all(
 }
 
 /**
+ * @brief Receives the CRC-32 sent from the dumper
+ * and compares with the output file.
  *
+ * A clean transmission should have matching CRCs,
+ * otherwise, the output file is not exactly as sent
+ * and might be very (or not) wrong.
  */
-static int wait_ready(int ifd)
+static void wait_and_check_crc(void)
+{
+	struct stat st = {0};
+	uint32_t crc32;
+	uint8_t c = 0;
+	ssize_t r = 0;
+	int idx   = 0;
+
+	union crc {
+		uint32_t crc32;
+		uint8_t  crc8[4];
+	} crc;
+
+	/* Create our table. */
+	build_crc32_table();
+
+	/* Wait to our received crc. */
+	while (1)
+	{
+		r = read(serial_fd, &c, 1);
+		if (r <= 0)
+			errto(out0, "Unable to receive CRC-32!\n");
+
+		crc.crc8[idx++] = c;
+		if (idx == sizeof crc.crc8)
+			break;
+	}
+
+	/* Mmap the output file. */
+	lseek(out_fd, 0, SEEK_SET);
+	fstat(out_fd, &st);
+	out_size = st.st_size;
+
+	out_file = mmap(0, out_size, PROT_READ, MAP_PRIVATE, out_fd, 0);
+	if (out_file == MAP_FAILED)
+		errto(out0, "ERROR: Failed to mmap: %s\n", strerror(errno));
+
+	/* Get CRC. */
+	crc32 = do_crc32(out_file, out_size);
+
+	printf("Received CRC-32: %08x\n", crc.crc32);
+	printf("Calculated CRC-32: %08x, match?: %s\n", crc32,
+		(crc32 == crc.crc32 ? "yes" : "no"));
+
+out0:
+	return;
+}
+
+/**
+ * @brief Wait until the dumper is ready to talk
+ *
+ * @param serial_fd Dumper file descriptor.
+ */
+static int wait_ready(int serial_fd)
 {
 	static const uint8_t magic[] = {0x0b,0xb0,0x01,0xc0};
 	uint8_t c = 0;
@@ -290,7 +399,7 @@ static int wait_ready(int ifd)
 
 	while (1)
 	{
-		r = read(ifd, &c, 1);
+		r = read(serial_fd, &c, 1);
 		if (r <= 0)
 			return (-1);
 
@@ -309,9 +418,13 @@ static int wait_ready(int ifd)
 }
 
 /**
+ * @brief Wait the dumper to be ready and then
+ * send the amountof bytes to be dumped.
  *
+ * @param serial_fd Serial file descriptor (or socket).
+ * @param length Amount of bytes to dump.
  */
-static void send_amount_and_wait(int ifd, uint32_t length)
+static void wait_and_send_length(uint32_t length)
 {
 	union len {
 		uint32_t len32;
@@ -321,11 +434,11 @@ static void send_amount_and_wait(int ifd, uint32_t length)
 	len.len32 = length;
 
 	/* Wait serial device to be ready. */
-	if (wait_ready(ifd) < 0)
+	if (wait_ready(serial_fd) < 0)
 		errx("Unable to receive message from dbg!\n");
 
 	/* Send amount of bytes. */
-	if (send_all(ifd, len.len8, 4) < 0)
+	if (send_all(serial_fd, len.len8, 4) < 0)
 		errx("Unable to send amount of bytes!\n");
 }
 
@@ -344,56 +457,81 @@ static void usage(const char *prg_name)
 		"  # Dumps 4M listening to a socket: \n"
 		"  %s -s dump4M.img $((4<<20))\n\n"
 		"  # Dumps 4M using a serial cable: \n"
-		"  %s /dev/ttyUSB0 dump4M.img $((4<<20))\n",
+		"  %s /dev/ttyUSB0 dump4M.img $((4<<20))\n\n"
+		"Note:\n"
+		"<output_file_length> must be divisible by 4!!",
 		prg_name, prg_name, prg_name);
+}
+
+/**
+ * @brief Handle program arguments
+ *
+ * @param argc Argument count.
+ * @param argv Argument list.
+ * @param out_len Dump length.
+ */
+static void handle_arguments(int argc, char **argv,
+	ssize_t *out_len)
+{
+	char *out;
+
+	if (argc != 4)
+		usage(argv[0]);
+
+	out = argv[2];
+
+	/* Dump length. */
+	*out_len = atoi(argv[3]);
+	if (*out_len <= 0 || (*out_len % 4 != 0))
+	{
+		err("Output length must be multiple of 4!\n");
+		usage(argv[0]);
+	}
+
+	/* Open output file. */
+	if ((out_fd = open(out, O_CREAT|O_RDWR|O_TRUNC, 0644)) < 0)
+		errx("Failed to open: %s, (%s)", out, strerror(errno));
+
+	printf("Waiting to read %zd bytes...\n", *out_len);
+
+	/* Setup socket and/or serial. */
+	if (strcmp(argv[1],"-s") != 0)
+		serial_fd = setup_serial(argv[1]);
+	else
+		serial_fd = setup_server_and_listen(2345);
 }
 
 /* Main =). */
 int main(int argc, char **argv)
 {
 	uint8_t buf[128];
-	ssize_t out_len;
+	ssize_t out_len  = 0;
 	size_t rdbytes;
 	ssize_t rdlen;
 	size_t amnt;
-	char *out;
 	size_t i;
-	int ifd;
-	int ofd;
 
-	if (argc != 4)
-		usage(argv[0]);
-
-	out     = argv[2];
-	out_len = atoi(argv[3]);
-	amnt    = out_len / AMNT_BARS; /* amnt of bytes per bar. */
+	handle_arguments(argc, argv, &out_len);
 	rdbytes = 0;
-
-	printf("Waiting to read %zd bytes...\n", out_len);
-
-	/* Open output file. */
-	if ((ofd = open(out, O_CREAT|O_RDWR|O_TRUNC, 0644)) < 0)
-		errx("Failed to open: %s, (%s)", out, strerror(errno));
-
-	/* If not socket. */
-	if (strcmp(argv[1],"-s") != 0)
-		ifd = setup_serial(argv[1]);
-	else
-		ifd = setup_server_and_listen(2345);
+	amnt    = out_len / AMNT_BARS;
 
 	/* Wait to dump. */
-	send_amount_and_wait(ifd, out_len);
+	wait_and_send_length(out_len);
 
+	/* Restore tty and stuff at exit. */
+	atexit(restore_settings);
+
+	/* Dump. */
 	fputs("Dumping memory: [                                 ]\r", stderr);
 	fputs("Dumping memory: [", stderr);
 
 	do
 	{
-		if ((rdlen = read(ifd, buf, sizeof(buf))) <= 0)
+		if ((rdlen = read(serial_fd, buf, sizeof(buf))) <= 0)
 			errx("Failed to read %zu bytes! (%s)\n", sizeof(buf),
 				strerror(errno));
 
-		if (write(ofd, buf, rdlen) <= 0)
+		if (write(out_fd, buf, rdlen) <= 0)
 			errx("Unable to write %zu bytes to output file!\n",
 				rdlen);
 
@@ -412,12 +550,13 @@ int main(int argc, char **argv)
 
 	fputs("] done =)\n", stderr);
 
+	/* Check for CRC. */
+	wait_and_check_crc();
+
 #ifndef BIOS
 	puts("Checking output file...");
-	check_output(ofd, atoi(argv[3]));
+	check_output(atoi(argv[3]));
 #endif
 
-	close(ifd);
-	close(ofd);
 	return (0);
 }
