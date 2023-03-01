@@ -55,6 +55,14 @@ static int out_fd;
 /* CRC-32 table. */
 uint32_t crc32_table[256];
 
+/* Receive buffer. */
+struct recv_buffer
+{
+	uint8_t buff[128];
+	size_t cur_pos;
+	size_t amt_read;
+} recv_buffer = {0};
+
 /* Error and exit */
 #define errx(...) \
 	do { \
@@ -85,6 +93,31 @@ static void restore_settings(void)
 		close(out_fd);
 	if (out_file)
 		munmap(out_file, out_size);
+}
+
+/**
+ * @brief Read a chunk of bytes and return the next byte
+ * belonging to the frame.
+ *
+ * @return Returns the byte read, or -1 if error.
+ */
+static inline int next_byte(void)
+{
+	ssize_t n;
+
+	/* If empty or full. */
+	if (recv_buffer.cur_pos == 0 ||
+		recv_buffer.cur_pos == recv_buffer.amt_read)
+	{
+		if ((n = read(serial_fd, recv_buffer.buff,
+			sizeof(recv_buffer.buff))) <= 0)
+		{
+			return (-1);
+		}
+		recv_buffer.amt_read = (size_t)n;
+		recv_buffer.cur_pos = 0;
+	}
+	return (recv_buffer.buff[recv_buffer.cur_pos++]);
 }
 
 /**
@@ -341,9 +374,8 @@ static void wait_and_check_crc(void)
 {
 	struct stat st = {0};
 	uint32_t crc32;
-	uint8_t c = 0;
-	ssize_t r = 0;
-	int idx   = 0;
+	size_t i = 0;
+	int c    = 0;
 
 	union crc {
 		uint32_t crc32;
@@ -354,15 +386,13 @@ static void wait_and_check_crc(void)
 	build_crc32_table();
 
 	/* Wait to our received crc. */
-	while (1)
+	for (i = 0; i < sizeof crc.crc8; i++)
 	{
-		r = read(serial_fd, &c, 1);
-		if (r <= 0)
+		c = next_byte();
+		if (c < 0)
 			errto(out0, "Unable to receive CRC-32!\n");
 
-		crc.crc8[idx++] = c;
-		if (idx == sizeof crc.crc8)
-			break;
+		crc.crc8[i] = c;
 	}
 
 	/* Mmap the output file. */
@@ -387,20 +417,17 @@ out0:
 
 /**
  * @brief Wait until the dumper is ready to talk
- *
- * @param serial_fd Dumper file descriptor.
  */
-static int wait_ready(int serial_fd)
+static int wait_ready()
 {
 	static const uint8_t magic[] = {0x0b,0xb0,0x01,0xc0};
-	uint8_t c = 0;
-	ssize_t r = 0;
-	int idx   = 0;
+	int c   = 0;
+	int idx = 0;
 
 	while (1)
 	{
-		r = read(serial_fd, &c, 1);
-		if (r <= 0)
+		c = next_byte();
+		if (c < 0)
 			return (-1);
 
 		if (c == magic[idx])
@@ -434,7 +461,7 @@ static void wait_and_send_length(uint32_t length)
 	len.len32 = length;
 
 	/* Wait serial device to be ready. */
-	if (wait_ready(serial_fd) < 0)
+	if (wait_ready() < 0)
 		errx("Unable to receive message from dbg!\n");
 
 	/* Send amount of bytes. */
@@ -504,12 +531,11 @@ static void handle_arguments(int argc, char **argv,
 /* Main =). */
 int main(int argc, char **argv)
 {
-	uint8_t buf[128];
 	ssize_t out_len  = 0;
 	size_t rdbytes;
-	ssize_t rdlen;
 	size_t amnt;
-	size_t i;
+	size_t i, j;
+	int c;
 
 	handle_arguments(argc, argv, &out_len);
 	rdbytes = 0;
@@ -525,28 +551,24 @@ int main(int argc, char **argv)
 	fputs("Dumping memory: [                                 ]\r", stderr);
 	fputs("Dumping memory: [", stderr);
 
-	do
+	for (i = 0; i < (size_t)out_len; i++)
 	{
-		if ((rdlen = read(serial_fd, buf, sizeof(buf))) <= 0)
-			errx("Failed to read %zu bytes! (%s)\n", sizeof(buf),
-				strerror(errno));
+		if ((c = next_byte()) < 0)
+			errx("Failed to read from device! (%s)\n", strerror(errno));
 
-		if (write(out_fd, buf, rdlen) <= 0)
-			errx("Unable to write %zu bytes to output file!\n",
-				rdlen);
+		if (write(out_fd, &c, 1) <= 0)
+			errx("Unable to write to the output file!\n");
 
-		rdbytes += rdlen;
-		out_len -= rdlen;
+		rdbytes++;
 
-		/* Update progress bar */
+		/* Update progress bar. */
 		if (rdbytes >= amnt)
 		{
-			for (i = 0; i < rdbytes / amnt; i++)
+			for (j = 0; j < rdbytes / amnt; j++)
 				fputc('#', stderr);
 			rdbytes = 0;
 		}
-
-	} while (out_len > 0);
+	}
 
 	fputs("] done =)\n", stderr);
 
@@ -555,7 +577,7 @@ int main(int argc, char **argv)
 
 #ifndef BIOS
 	puts("Checking output file...");
-	check_output(atoi(argv[3]));
+	check_output(out_len);
 #endif
 
 	return (0);
