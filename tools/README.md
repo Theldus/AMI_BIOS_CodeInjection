@@ -64,3 +64,5 @@ Offset 70934:
 ```
 
 ## [skip_string.sh](https://github.com/Theldus/AMI_BIOS_CodeInjection/blob/main/tools/skip_strings.sh)
+`skip_string.sh` is a small shell script that generates a 'skip list' for ndisasm using the strings
+command. This list contains the strings offsets that are then ignored by ndisasm.
