@@ -314,8 +314,10 @@ to be flashed.
 
 > :information_source: **Note:** Note that I used the value `0x1138` as the ORG directive.
 This is the offset from the EIP at which the function resides in real memory (`4000:1138`).
-This value was obtained via memory dump with the `mdump` tool. _Whenever_ you make memory
-references within your own code, change the ORG directive to the appropriate value.
+This value was obtained via memory dump with the
+[`mdump`](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/mdump) tool.
+_Whenever_ you make memory references within your own code, change the ORG directive to
+the appropriate value.
 
 #### 2. Call to elsewhere
 The replacement method is quite limited: it's hard to find locations that can be
@@ -370,7 +372,8 @@ $ dd if=mycall.bin of=post.rom bs=1 seek=$((0x17ef7)) conv=notrunc
 ```
 
 Now, you might be wondering: what address is this `FFFF:8A10`? This is the address that the
-logo module is loaded into the memory (obtained via `mdump`).
+logo module is loaded into the memory (obtained via
+[`mdump`](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/mdump)).
 
 Okay, now let's move on to the logo:
 
@@ -478,6 +481,10 @@ restart automatically.
 > :warning: **Warning:** ___Never___ flash a modified ROM unless you have a way to reprogram
 it externally, such as a rom programmer, a Raspberry Pi, or another microcontroller that
 performs a similar function.
+
+## Tools
+Many small tools were developed in the course of the BIOS RE, some already mentioned here in
+the article. You can find all of them in the [`tools/`](tools/) folder.
 
 ## Acknowledgements
 This project was created in collaboration with [@rlaneth], so I'd like to express my sincere
