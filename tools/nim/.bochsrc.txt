@@ -1,0 +1,13 @@
+megs: 16
+cpu: model=p4_willamette
+romimage: file="/usr/share/bochs/BIOS-bochs-latest"
+vgaromimage: file="/usr/share/bochs/VGABIOS-lgpl-latest"
+floppya: 1_44="bootable.img", status=inserted
+boot: a
+log: /dev/null
+mouse: enabled=0
+clock: sync=none, time0=utc
+display_library: x, options="gui_debug"
+magic_break: enabled=1
+com1: enabled=1, mode=socket-client, dev=localhost:2345
+debug: none
