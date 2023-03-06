@@ -66,3 +66,17 @@ Offset 70934:
 ## [skip_string.sh](https://github.com/Theldus/AMI_BIOS_CodeInjection/blob/main/tools/skip_strings.sh)
 `skip_string.sh` is a small shell script that generates a 'skip list' for ndisasm using the strings
 command. This list contains the strings offsets that are then ignored by ndisasm.
+
+# Games
+Below is a list of games I made to run in the BIOS:
+
+## [NIM](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/nim)
+Nim is a BIOS game where each player takes turns removing sticks from a row. The game
+starts with a pre-determined number of sticks, and players can remove as many sticks as they like
+on their turn, but they must remove at least one. The player who removes the last stick loses
+the game.
+
+The computer will only fully boot if the player wins the game, which can be a difficult and
+time-consuming task. As a result, this game was made solely for entertainment purposes.
+
+Video: https://youtu.be/4SEeUinVLCQ
