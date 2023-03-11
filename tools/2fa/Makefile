@@ -33,10 +33,19 @@ FIRST_STAGE=$$((512+2048))
 # Code start address offset
 CODE_ADDR=$$((0x8a10))
 
+# BIOS builds?
 ifeq ($(BIOS),yes)
 	CFLAGS   += -DBIOS
 	ASMFLAGS += --defsym BIOS=1
 	FIRST_STAGE = 2048
+endif
+
+# Set secret key and default passwd
+ifneq ($(SECRET_KEY),)
+	CFLAGS += -DSECRET_KEY=\"$(SECRET_KEY)\"
+endif
+ifneq ($(BACK_PASSWD),)
+	CFLAGS += -DBACK_PASSWD=\"$(BACK_PASSWD)\"
 endif
 
 .PHONY: all clean
