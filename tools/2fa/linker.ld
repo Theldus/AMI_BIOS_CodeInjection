@@ -32,7 +32,14 @@ SECTIONS
 		*(.rodata)
 	}
 
+	/* Reserve space for our secondary stack. */
 	_stack_addr = . + 2048;
+	.stack :
+	{
+		FILL(0x00)
+		. = 2047;
+		BYTE(0x90)
+	}
 
 	/DISCARD/ :
 	{
