@@ -33,7 +33,7 @@ boot_init:
 	mov $4096,  %sp
 
 	# Read 10 sectors
-	mov $0xFFFF, %ax # segment
+	mov $0x1000, %ax # segment
 	mov %ax, %es
 	mov $0x8210, %bx # offset addr
 	mov $18, %al     # num sectors to read
@@ -41,7 +41,7 @@ boot_init:
 	call read_sectors
 
 	# Far call to our module
-	lcall $0xFFFF, $0x8A10
+	lcall $0x1000, $0x8A10
 
 	# Hang
 1:	hlt
