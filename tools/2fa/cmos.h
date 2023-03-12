@@ -69,6 +69,17 @@ static struct cmos_time
 #define CURR_MILLENNIUM 2000
 
 /**
+ * @brief Current locale
+ * (If your PC BIOS date is set to UTC, leave this as 0!)
+ *
+ * Please pay attention that this is the offset to adjust
+ * the local time to UTC. If your local time is UTC-3,
+ * the variable LOCALE should be 3, not -3!. If UTC+3,
+ * your 'LOCALE' should be set to -3, not 3!.
+ */
+#define LOCALE 3 /* >> CHANGE_HERE << */
+
+/**
  * @brief Read a byte from the CMOS device.
  *
  * @param addr Target address.
@@ -88,7 +99,7 @@ static uint8_t cmos_read(uint8_t addr)
  *        the year, it's our responsibility to add it with
  *        right offset.
  *
- * @return The Unix timestamp.
+ * @return The Unix timestamp at UTC (or should be).
  */
 static int32_t cmos_to_unix_time(void)
 {
@@ -120,7 +131,7 @@ static int32_t cmos_to_unix_time(void)
 	num_days = era * 146097 + doe - 719468;
 	/* Determine the total number of seconds */
 	num_secs = (num_days * 86400) + (hour * 3600) + (minute * 60) + second;
-	return (num_secs);
+	return (num_secs + (LOCALE * 60 * 60));
 }
 
 /**
