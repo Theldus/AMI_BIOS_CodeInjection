@@ -100,5 +100,5 @@ asm (
 	"int $0x10\n"
 #endif
 
-	"retf\n"
+	".byte 0xCB\n" /* true 16-bit retf. */
 );
