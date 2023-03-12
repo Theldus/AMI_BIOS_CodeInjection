@@ -80,7 +80,7 @@ boot.o: boot.S
 bochs: 2fa.img
 	bochs -q -f .bochsrc.txt
 qemu: 2fa.img
-	qemu-system-i386 -boot a -fda 2fa.img
+	qemu-system-i386 -boot a -fda 2fa.img -rtc base=localtime
 
 clean:
 	$(RM) $(OBJ)
