@@ -80,3 +80,16 @@ The computer will only fully boot if the player wins the game, which can be a di
 time-consuming task. As a result, this game was made solely for entertainment purposes.
 
 Video: https://youtu.be/4SEeUinVLCQ
+
+# Security
+Below is a list of tools focused on 'security':
+
+## [2FA](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/2fa)
+2FA is a tool for two-factor authentication in BIOS via TOTP, so authentication is required when
+turning on the computer.
+
+Although for some it may seem useless, I really liked this idea and decided to go ahead: requiring
+a physical device (e.g., smartphone) to turn on the computer seemed like a good idea, and that's why
+I did it. It amazes me that this doesn't already exist on modern PCs.
+
+Video: https://youtu.be/ycLIlmRGP6M
