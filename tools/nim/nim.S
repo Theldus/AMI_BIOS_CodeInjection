@@ -495,7 +495,7 @@ think:
 	xor 	%dx, %dx
 	mov 	$sticks, %si
 .count_sticks:
-	cmp 	$1, 0(%si)
+	cmpw 	$1, 0(%si)
 	jg 		1f
 	jmp 	2f
 1:
@@ -535,8 +535,8 @@ think:
 	cmp 	$4,    %cx
 	jl      1b
 2:
-	sub 	$1,    (%si)
-	sub 	$1,    sticks_count
+	subw 	$1,    (%si)
+	subb 	$1,    sticks_count
 	jmp 	.finish
 
 	#
@@ -567,7 +567,7 @@ think:
 	# n or n-1 sticks from that column. So is necessary
 	# to bifurcate these two scenarios here.
 	#
-	cmp 	$1, (%bp)
+	cmpw 	$1, (%bp)
 	jne 	.scenario_a
 
 .scenario_b:

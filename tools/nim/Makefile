@@ -23,6 +23,7 @@
 AS ?= as
 OBJ = nim.o boot.o
 BIN = nim.bin boot.bin bootable.img
+LDFLAGS = -T linker.ld
 
 .PHONY: all bochs qemu clean
 
@@ -33,9 +34,9 @@ all: $(BIN)
 	$(AS) $^ -o $@
 
 nim.bin: nim.o
-	ld -Ttext=0x8210 --oformat binary $^ -o $@
+	$(LD) $(LDFLAGS) -Ttext=0x8210 --oformat binary $^ -o $@
 boot.bin: boot.o
-	ld -Ttext=0x7c00 --oformat binary $^ -o $@
+	$(LD) $(LDFLAGS) -Ttext=0x7c00 --oformat binary $^ -o $@
 
 bootable.img: boot.bin nim.bin
 	cat boot.bin nim.bin > bootable.img
