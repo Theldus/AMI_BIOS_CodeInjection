@@ -47,4 +47,4 @@ $ nasm -fbin nim.asm -o bootable.bin # Bootable game
 - Excellent introductory material on BIOS crafting: [Crafting a BIOS from scratch](https://pete.akeo.ie/2011/06/crafting-bios-from-scratch.html)
 - Huge source of content: if Coreboot supports the motherboard you want to support, then it has the code you need to read: [Coreboot src](https://github.com/coreboot/coreboot)
 
-Also check out the [docs/](/docs) folder for some interesting PDFs on the subject.
+Also check out the [docs/](tools/bios_nim/docs) folder for some interesting PDFs on the subject.
