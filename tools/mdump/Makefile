@@ -35,6 +35,11 @@ ifneq ($(DUMP_BYTES),)
 	ASMFLAGS += -DDUMP_BYTES=$(DUMP_BYTES)
 endif
 
+ifneq ($(BAUDRATE),)
+	CFLAGS   += -DBAUDRATE=B$(BAUDRATE)
+	ASMFLAGS += -DBAUDRATE=$(BAUDRATE)
+endif
+
 .PHONY: all qemu clean
 
 all: $(BIN)

@@ -41,6 +41,10 @@
 	out dx, al
 %endmacro
 
+%ifndef BAUDRATE
+%define BAUDRATE 115200
+%endif
+
 ; --------------------------------
 ; Code
 ; --------------------------------
@@ -332,7 +336,7 @@ DUMP_BARS_SHIFT equ 5 ; (32 bars)
 ; --------------
 UART_CLOCK_SIGNAL equ 1843200
 UART_BASE         equ 0x3F8
-UART_BAUD         equ 115200 ; 9600 if things go wrong
+UART_BAUD         equ BAUDRATE ; 9600 if things go wrong
 UART_DIVISOR      equ UART_CLOCK_SIGNAL / (UART_BAUD << 4)
 UART_RB           equ UART_BASE + 0 ; Receiver Buffer (R).
 UART_FCR          equ UART_BASE + 2 ; FIFO Control Register (W).

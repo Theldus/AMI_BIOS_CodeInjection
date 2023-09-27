@@ -39,6 +39,10 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+#ifndef BAUDRATE
+#define BAUDRATE B115200
+#endif
+
 /* Progress amount of bars. */
 #define AMNT_BARS 32
 
@@ -240,8 +244,8 @@ int setup_serial(const char *sdev)
 		errx("Failed to get attr: (%s)", strerror(errno));
 
 	savetty = tty;
-	cfsetospeed(&tty, (speed_t)B115200);
-	cfsetispeed(&tty, (speed_t)B115200);
+	cfsetospeed(&tty, (speed_t)BAUDRATE);
+	cfsetispeed(&tty, (speed_t)BAUDRATE);
 	cfmakeraw(&tty);
 
 	/* TTY settings. */
