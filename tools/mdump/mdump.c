@@ -124,6 +124,7 @@ static inline int next_byte(void)
 	return (recv_buffer.buff[recv_buffer.cur_pos++]);
 }
 
+#ifndef DISABLE_CRC
 /**
  * @brief Creates the CRC-32 table
  */
@@ -173,6 +174,7 @@ uint32_t do_crc32(const uint8_t *buff, size_t length)
 	}
 	return (~crc);
 }
+#endif
 
 /**
  * @brief Configure a TCP server to listen to the
@@ -263,6 +265,31 @@ int setup_serial(const char *sdev)
 	return (serial_fd);
 }
 
+#if !defined(DISABLE_CRC) || !defined(BIOS)
+/**
+ * @brief Open the output file to read and get its size.
+ *
+ * @return Returns 0 if success, -1 otherwise.
+ */
+int mmap_outfile(void)
+{
+	struct stat st = {0};
+
+	/* Mmap the output file. */
+	lseek(out_fd, 0, SEEK_SET);
+	fstat(out_fd, &st);
+	out_size = st.st_size;
+
+	out_file = mmap(0, out_size, PROT_READ, MAP_PRIVATE, out_fd, 0);
+	if (out_file == MAP_FAILED) {
+		err("ERROR: Failed to mmap: %s\n", strerror(errno));
+		return (-1);
+	}
+
+	return (0);
+}
+#endif
+
 /**
  * @brief Perform some sanity checks on the output
  * file.
@@ -282,6 +309,12 @@ static int check_output(size_t amnt_bytes)
 	struct stat st = {0};
 	int shift      =  0;  /* Amount of bytes to shift. */
 	int ret        = -1;
+
+#ifdef DISABLE_CRC
+	/* Mmap the output file. */
+	if (mmap_outfile() < 0)
+		goto out0;
+#endif
 
 	if ((size_t)out_size != amnt_bytes)
 		err("WARNING: Output size (%zu) differs from expected: "
@@ -366,6 +399,7 @@ ssize_t send_all(
 	return (0);
 }
 
+#ifndef DISABLE_CRC
 /**
  * @brief Receives the CRC-32 sent from the dumper
  * and compares with the output file.
@@ -376,7 +410,6 @@ ssize_t send_all(
  */
 static void wait_and_check_crc(void)
 {
-	struct stat st = {0};
 	uint32_t crc32;
 	size_t i = 0;
 	int c    = 0;
@@ -400,13 +433,8 @@ static void wait_and_check_crc(void)
 	}
 
 	/* Mmap the output file. */
-	lseek(out_fd, 0, SEEK_SET);
-	fstat(out_fd, &st);
-	out_size = st.st_size;
-
-	out_file = mmap(0, out_size, PROT_READ, MAP_PRIVATE, out_fd, 0);
-	if (out_file == MAP_FAILED)
-		errto(out0, "ERROR: Failed to mmap: %s\n", strerror(errno));
+	if (mmap_outfile() < 0)
+		goto out0;
 
 	/* Get CRC. */
 	crc32 = do_crc32(out_file, out_size);
@@ -418,6 +446,7 @@ static void wait_and_check_crc(void)
 out0:
 	return;
 }
+#endif
 
 /**
  * @brief Wait until the dumper is ready to talk
@@ -576,8 +605,10 @@ int main(int argc, char **argv)
 
 	fputs("] done =)\n", stderr);
 
+#ifndef DISABLE_CRC
 	/* Check for CRC. */
 	wait_and_check_crc();
+#endif
 
 #ifndef BIOS
 	puts("Checking output file...");

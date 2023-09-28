@@ -98,7 +98,7 @@ mov eax, cr0
 or  eax, 1     ; protecc mode
 mov cr0, eax
 
-; Do your 'far jump' without absolute address =)
+; Do our 'far jump' without absolute address =)
 push 0x08
 call protecc
 return:
@@ -139,8 +139,10 @@ protected_mode:
 	; UART
 	call setup_uart
 
+%ifndef DISABLE_CRC
 	; Create our CRC-32 table
 	call build_crc32_table
+%endif
 
 	; Signal that we're ready
 	mov ebx, 0xc001b00b
@@ -193,8 +195,10 @@ dump:
 	; Load 4-bytes and dump
 	lodsd
 
+%ifndef DISABLE_CRC
 	; Update CRC-32 value
 	call update_crc
+%endif
 
 	; Send over serial
 	mov ebx, eax
@@ -290,6 +294,7 @@ write_dword_serial:
 	call write_byte_serial
 	ret
 
+%ifndef DISABLE_CRC
 ;
 ; Generate a CRC-32 table
 ;
@@ -355,10 +360,7 @@ update_crc:
 	pop ecx
 	pop eax
 	ret
-
-; General
-; -------
-DUMP_BARS_SHIFT equ 5 ; (32 bars)
+%endif
 
 ; UART Constants
 ; --------------
@@ -389,11 +391,11 @@ UART_FCR_TRIG_14 equ 0x0  ; Trigger level 14-byte.
 ; Line status register
 UART_LSR_TFE equ 0x20 ; Transmitter FIFO Empty.
 
-%ifndef BIOS
+;%ifndef BIOS
 ; Some magic number
 times 506-($-$$) db 0
 dd 0xB16B00B5
 
 ; Signature
 dw 0xAA55
-%endif
+;%endif

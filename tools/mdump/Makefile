@@ -40,6 +40,11 @@ ifneq ($(BAUDRATE),)
 	ASMFLAGS += -DBAUDRATE=$(BAUDRATE)
 endif
 
+ifeq ($(DISABLE_CRC),yes)
+	CFLAGS   += -DDISABLE_CRC
+	ASMFLAGS += -DDISABLE_CRC
+endif
+
 .PHONY: all qemu clean
 
 all: $(BIN)
