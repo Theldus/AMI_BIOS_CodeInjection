@@ -21,7 +21,7 @@
 ; SOFTWARE.
 
 [BITS 16]
-[ORG 0x7C00] ; >> CHANGE_HERE <<
+[ORG 0x7C00] ; No need to change anything here
 
 ; --------------------------------
 ; Macros
@@ -45,6 +45,10 @@
 %define BAUDRATE 115200
 %endif
 
+%ifndef BIOS
+%define SETUP_STACK
+%endif
+
 ; --------------------------------
 ; Code
 ; --------------------------------
@@ -52,17 +56,63 @@
 ; Disable ints
 cli
 
-xor ax, ax
-mov ds, ax
+%ifdef SETUP_STACK
+mov ax, 0x7C0
+add ax, 544
+mov ss, ax
+mov sp, 4096
+%endif
+
+;
+; Create our GDB on stack
+;
+; Code and data with 4G, base=0, 4k pages
+;
+
+; Entry 2, Data
+push dword 0x00CF9200
+push dword 0x0000FFFF
+; Entry 1, Code
+push dword 0x00CF9A00
+push dword 0x0000FFFF
+; Entry 0
+push dword 0
+push dword 0
+
+; Phys addr
+xor eax, eax
+mov bp, sp
+mov ax, ss
+shl ax, 4
+add ax, bp ; Make AX point to the first element on stack
+
+; GDT desc
+push eax
+push word 23 ; gdt_end-gdt-1
 
 ; Jump to protected mode
-lgdt [gdt_desc]
+mov bp, sp
+lgdt [ss:bp]
 
 mov eax, cr0
 or  eax, 1     ; protecc mode
 mov cr0, eax
 
-jmp 08h:protected_mode
+; Do your 'far jump' without absolute address =)
+push 0x08
+call protecc
+return:
+retf
+
+;
+; Adjust return address:
+; Skip protecc itself and the retf byte too
+;
+protecc:
+	mov bp, sp
+	add word [bp], protecc_len + 1
+	jmp return
+	protecc_len equ $ - protecc
 
 [BITS 32]
 protected_mode:
@@ -71,6 +121,20 @@ protected_mode:
 	mov es, ax        ; data seg
 	mov ss, ax        ; stack seg as data seg
 	mov esp, 090000h  ; set stack pointer
+
+	%define STCK_CRC_TBL_ADDR 12
+	%define STCK_DUMP_VG_OFF  8
+	%define STCK_CRC_VALUE    4
+	%define STCK_DUMP_AMOUNT  0
+
+	; Reserve space to our CRC table (1024 bytes)
+	sub esp, 1024
+
+	; Prepare our aux data
+	push dword 0x0B8000 ; DUMP_VG_OFF
+	push dword 0xFFFFFFFF ; CRC_VALUE
+	push dword 0 ; DUMP_AMOUNT
+	mov ebp, esp
 
 	; UART
 	call setup_uart
@@ -90,12 +154,15 @@ protected_mode:
 	repe stosb
 
 	; Initial text
-	mov esi, dump_wait_str
+	push dword 0x202e2e2e ; '... '
+	push dword 0x74696157 ; 'Wait'
+	mov esi, esp
 	call print_text
+	add esp, 8
 %endif
 
 	; Wait for the length
-	mov edi, DUMP_AMOUNT
+	mov edi, ebp+STCK_DUMP_AMOUNT
 	mov ecx, 4
 
 	wait_len:
@@ -107,18 +174,21 @@ protected_mode:
 		loop wait_len
 
 	; 'Fix' our DUMP_AMOUNT by /4
-	shr dword [es:DUMP_AMOUNT], 2
+	shr dword [ss:ebp+STCK_DUMP_AMOUNT], 2
 
 %ifndef BIOS
-	; Initial text
-	mov esi, dump_str
+	; Dump text
+	push dword 0x2e2e2e70 ; 'p...'
+	push dword 0x6d754420 ; ' Dum'
+	mov esi, esp
 	call print_text
+	add esp, 8
 %endif
 
 	; ------- Memory dump -------------
 	cld
 	mov esi, 0
-	mov ecx, dword [es:DUMP_AMOUNT]
+	mov ecx, dword [ss:ebp+STCK_DUMP_AMOUNT]
 dump:
 	; Load 4-bytes and dump
 	lodsd
@@ -134,14 +204,17 @@ dump:
 	;
 	; Done, now we send our calculated CRC-32 value
 	;
-	mov ebx, dword [es:CRC_VALUE]
+	mov ebx, dword [ss:ebp+STCK_CRC_VALUE]
 	not ebx
 	call write_dword_serial
 
 %ifndef BIOS
 	; Done
-	mov esi, dump_done_str
+	push dword 0x20202065 ; 'e   '
+	push dword 0x6e6f4420 ; ' Don'
+	mov esi, esp
 	call print_text
+	add esp, 8
 %endif
 
 	hang: jmp hang
@@ -153,17 +226,17 @@ dump:
 ;   esi = text buffer
 ;
 print_text:
-	mov edi, [dump_vg_off]
+	mov edi, [ss:ebp+STCK_DUMP_VG_OFF]
+	mov ecx, 8
 	.loop:
 		lodsb
-		cmp al, 0
-		je .out
 		stosb
 		mov al, 0x1B
 		stosb
-		jmp .loop
+		loop .loop
 	.out:
-		mov [dump_vg_off], edi ; Update curr vid memory
+		; Update curr vid memory
+		mov [ss:ebp+STCK_DUMP_VG_OFF], edi
 		ret
 %endif
 
@@ -224,7 +297,8 @@ write_dword_serial:
 ;   https://lxp32.github.io/docs/a-simple-example-crc32-calculation/
 ;
 build_crc32_table:
-	mov edi, CRC_TBL_ADDR
+	mov edi, ebp
+	add edi, STCK_CRC_TBL_ADDR
 	xor ecx, ecx
 	; ecx = counter/i/j
 	; eax = crc
@@ -267,69 +341,23 @@ update_crc:
 	push eax
 	push ecx
 	mov  ecx, 4
-	mov  edx, dword [es:CRC_VALUE]
+	mov  edx, dword [ss:ebp+STCK_CRC_VALUE]
 	.crc_calc_loop:
 		movzx ebx, al   ; t = s[0]
 		xor   ebx, edx  ; ch ^ crc
 		and   ebx, 0xFF ; & 0xFF
 		shr   edx, 8    ; crc>>8
-		xor   edx, dword [es:CRC_TBL_ADDR+(ebx*4)]
+		xor   edx, dword [ss:ebp+STCK_CRC_TBL_ADDR+(ebx*4)]
 		shr   eax, 8
 		loop  .crc_calc_loop
 	; Save our new CRC
-	mov dword [es:CRC_VALUE], edx
+	mov dword [ss:ebp+STCK_CRC_VALUE], edx
 	pop ecx
 	pop eax
 	ret
 
-; --------------------------------
-; Data
-; --------------------------------
-
-; GDT
-gdt:        ; Address for the GDT
-gdt_null:   ; Null Segment
-	dd 0
-	dd 0
-gdt_code:        ; Code segment, read/execute, nonconforming
-	dw 0FFFFh    ; limit = 4G
-	dw 0         ; base = 0
-	db 0         ; base = 0
-	db 10011010b ; access = RO/Exec/Code/Priv 0/Present
-	db 11001111b ; limit = 1111 / flags = 4KiB page blocks, 32-bit seg
-	db 0
-gdt_data:        ; Data segment, read/write, expand down
-	dw 0FFFFh    ; limit = 4G
-	dw 0         ; base = 0
-	db 0         ; base = 0
-	db 10010010b ; access = RW/Data/Priv 0/Present
-	db 11001111b ; limit = 1111 / flags = 4KiB page blocks, 32-bit seg
-	db 0
-gdt_end:
-gdt_desc:
-	dw gdt_end - gdt - 1  ; Limit (size)
-	dd gdt ; >> CHANGE_HERE <<  Physical GDT address
-
-%ifndef BIOS
-; Dump aux data
-dump_wait_str:    db 'Waiting for receiver...', 0
-dump_str:         db ' Dumping...', 0
-dump_done_str:    db ' Done', 0
-dump_vg_off:      dd 0x0B8000
-%endif
-
-; --------------------------------
-; Constants
-; --------------------------------
-
-; CRC-32
-; ------
-CRC_TBL_ADDR equ 0x90000 ; right after stack
-CRC_VALUE dd 0xFFFFFFFF
-
 ; General
 ; -------
-DUMP_AMOUNT:    dd  0
 DUMP_BARS_SHIFT equ 5 ; (32 bars)
 
 ; UART Constants
