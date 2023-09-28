@@ -25,7 +25,7 @@ CFLAGS += -Wall -Wextra -pedantic -O2
 OBJ = mdump.o
 BIN = mdump mdump.img
 
-ifeq ($(BIOS),yes)
+ifeq ($(BOOTABLE),no)
 	CFLAGS   += -DBIOS
 	ASMFLAGS += -DBIOS
 endif
