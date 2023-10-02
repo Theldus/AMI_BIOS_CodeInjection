@@ -99,18 +99,29 @@ or  eax, 1     ; protecc mode
 mov cr0, eax
 
 ; Do our 'far jump' without absolute address =)
-push 0x08
+push dword 0x08
 call protecc
 return:
-retf
+retfd
 
 ;
 ; Adjust return address:
-; Skip protecc itself and the retf byte too
+; Skip protecc itself and the retfd word too
 ;
 protecc:
-	mov bp, sp
-	add word [bp], protecc_len + 1
+	; Adjust EIP
+	xor eax, eax
+	pop ax
+	add ax, protecc_len + 2 ; EIP
+	; Get Phys CS
+	xor ebx, ebx
+	push cs
+	pop  bx
+	shl ebx, 4   ; Phys CS
+	; Final phys address
+	add eax, ebx ; Phys address
+	; Push it and return
+	push dword eax
 	jmp return
 	protecc_len equ $ - protecc
 
@@ -131,7 +142,7 @@ protected_mode:
 	sub esp, 1024
 
 	; Prepare our aux data
-	push dword 0x0B8000 ; DUMP_VG_OFF
+	push dword 0x0B8000   ; DUMP_VG_OFF
 	push dword 0xFFFFFFFF ; CRC_VALUE
 	push dword 0 ; DUMP_AMOUNT
 	mov ebp, esp
@@ -165,7 +176,8 @@ protected_mode:
 
 	; Wait for the length
 	mov edi, ebp+STCK_DUMP_AMOUNT
-	mov ecx, 4
+	xor ecx, ecx
+	mov cl,  4
 
 	wait_len:
 		inputb UART_LSR
@@ -189,7 +201,7 @@ protected_mode:
 
 	; ------- Memory dump -------------
 	cld
-	mov esi, 0
+	xor esi, esi
 	mov ecx, dword [ss:ebp+STCK_DUMP_AMOUNT]
 dump:
 	; Load 4-bytes and dump
@@ -201,7 +213,7 @@ dump:
 %endif
 
 	; Send over serial
-	mov ebx, eax
+	xchg ebx, eax
 	call write_dword_serial
 	loop dump
 
@@ -231,7 +243,8 @@ dump:
 ;
 print_text:
 	mov edi, [ss:ebp+STCK_DUMP_VG_OFF]
-	mov ecx, 8
+	xor ecx, ecx
+	mov cl,  8
 	.loop:
 		lodsb
 		stosb
@@ -313,7 +326,8 @@ build_crc32_table:
 		mov  ebx, ecx ; ch  = i
 		xor  eax, eax ; crc = 0
 		push ecx      ; backup outer counter
-		mov  ecx, 8   ; ecx = j = 0
+		xor  ecx, ecx
+		mov  cl,  8   ; ecx = j = 0
 		.inner: ; 8
 			mov edx, ebx ; b = ch
 			xor edx, eax ; b = b^crc
@@ -345,7 +359,8 @@ build_crc32_table:
 update_crc:
 	push eax
 	push ecx
-	mov  ecx, 4
+	xor  ecx, ecx
+	mov  cl,  4
 	mov  edx, dword [ss:ebp+STCK_CRC_VALUE]
 	.crc_calc_loop:
 		movzx ebx, al   ; t = s[0]
@@ -391,11 +406,11 @@ UART_FCR_TRIG_14 equ 0x0  ; Trigger level 14-byte.
 ; Line status register
 UART_LSR_TFE equ 0x20 ; Transmitter FIFO Empty.
 
-;%ifndef BIOS
+%ifndef BIOS
 ; Some magic number
 times 506-($-$$) db 0
 dd 0xB16B00B5
 
 ; Signature
 dw 0xAA55
-;%endif
+%endif
