@@ -13,6 +13,8 @@ even FreeDOS, the memory usage of `mdump` is minimal, which means that it interf
 minimally with the contents of the PC's memory.
 - Injectable: Its source code is made to be modular and easily injected into other
 environments, such as within the BIOS itself or even as a DOS program.
+- Position-Independent Code: Once built, mdump does not require specific offsets to
+work, just place your binary where you want to dump it and that's it =).
 
 ## Usage
 To use it is quite simple, something like:
@@ -44,6 +46,43 @@ Success!
 A progress bar will indicate the status of the transfer. After the dump is complete, some
 sanity checks will be performed on the output file, and if everything is ok, chances are
 the dump is in good shape.
+
+### Custom builds
+mdump has a number of variables that can be selected during the build and that customize its
+operation:
+
+`BOOTABLE`: `yes/no` (default: `yes`)
+
+If `yes`, the generated code is bootable and has the signature '`55 AA`'
+at the end of the binary. If `no`, the code no longer has the 512-byte padding and the prints
+are also removed, since it is assumed that the video may not be initialized/functional in
+other circumstances, such as inside the BIOS ROM.
+
+`BAUDRATE`: `9600, 19200, 38400, 115200...` (default: `115200`)
+
+Selects the data transmission speed.
+
+`DISABLE_CRC`: `yes/no` (defaut: `no`)
+
+By default mdump will calculate the CRC-32 of the transmitted data, however, the CRC
+calculation increases the final size of the binary (~399 bytes total) and makes
+considerable use of the stack (1kB). If this may be a problem for you, disable the use of CRC.
+
+#### Examples:
+
+```bash
+# Build a non-bootable code without CRC-checking
+$ make clean
+$ make BOOTABLE=no DISABLE_CRC=yes
+
+# Build a bootable code with 9600-bauds of speed:
+$ make clean
+$ make BAUDRATE=9600
+
+# Default build equivalent:
+$ make clean
+$ make BOOTABLE=yes DISABLE_CRC=no BAUDRATE=115200
+```
 
 ## Limitations
 `mdump` has a few limitations:
