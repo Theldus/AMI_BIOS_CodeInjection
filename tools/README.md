@@ -81,6 +81,12 @@ time-consuming task. As a result, this game was made solely for entertainment pu
 
 Video: https://youtu.be/4SEeUinVLCQ
 
+## [BIOS NIM](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/bios_nim)
+BIOS Nim is a tiny-BIOS/bootblock (with emphasis on tiny) made to work on PCWare IPM41-D3/Intel
+DG41WV motherboards where its only purpose is: to run the NIM game via serial port, without RAM.
+
+Demo video: https://youtu.be/oCrixs5SdVk
+
 # Security
 Below is a list of tools focused on 'security':
 
