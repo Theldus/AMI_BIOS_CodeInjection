@@ -93,3 +93,13 @@ a physical device (e.g., smartphone) to turn on the computer seemed like a good 
 I did it. It amazes me that this doesn't already exist on modern PCs.
 
 Video: https://youtu.be/ycLIlmRGP6M
+
+# Miscellaneous
+Below is a diverse list of random code that might be interesting/useful:
+
+## [basic](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/basic)
+BASIC is an attempt to bring the IBM (Cassette) BASIC 1.0 back to modern PCs as an OptionROM.
+Once injected into the computer, a new interrupt (`int 0xC8`) will be available, and when invoked,
+the original IBM BASIC will be executed.
+
+Video: https://youtu.be/ugK_S9CgUto
