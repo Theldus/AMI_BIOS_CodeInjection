@@ -67,6 +67,14 @@ Offset 70934:
 `skip_string.sh` is a small shell script that generates a 'skip list' for ndisasm using the strings
 command. This list contains the strings offsets that are then ignored by ndisasm.
 
+## [sdtlist](https://github.com/Theldus/AMI_BIOS_CodeInjection/tree/main/tools/sdtlist)
+`sdtlist` is a tool that, given the 1B module of an AMIBIOS8 BIOS, lists all the
+SMM handlers (i.e., the SMM Dispatch Table) present in that module and their
+respective physical positions in the file.
+
+The main idea is to be able to explore the existing modules and modify them
+freely as needed.
+
 # Games
 Below is a list of games I made to run in the BIOS:
 
